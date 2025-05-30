@@ -81,16 +81,26 @@ def build_interpreter(model_path, use_tpu=False):
     return Interpreter(model_path)
 
 
-def prepare_interpreter(model_path, warmup=5,useTpu=False):
+def prepare_interpreter(model_path, warmup=5, useTpu=False):
     itp = build_interpreter(model_path, use_tpu=useTpu)
     itp.allocate_tensors()
     
     # Get input and output tensor information
-    inp_idx = itp.get_input_details()[0]['index']
-    out_idx = itp.get_output_details()[0]['index']
-    dummy   = np.random.random_sample(
-                 itp.get_input_details()[0]['shape']
-             ).astype(itp.get_input_details()[0]['dtype'])
+    input_details = itp.get_input_details()[0]
+    output_details = itp.get_output_details()[0]
+    inp_idx = input_details['index']
+    out_idx = output_details['index']
+    
+    # Create appropriate dummy data based on data type
+    input_shape = input_details['shape']
+    input_dtype = input_details['dtype']
+    
+    if input_dtype == np.uint8:
+        dummy = np.random.randint(0, 256, input_shape, dtype=np.uint8)
+    else:
+        dummy = np.random.random_sample(input_shape).astype(input_dtype)
+    
+    # Warmup runs
     for _ in range(warmup):
         itp.set_tensor(inp_idx, dummy)
         itp.invoke()
@@ -127,7 +137,7 @@ def plot_monitor_data(data_list, output_prefix="monitor"):
         print("No system monitor data to plot.")
         return
     
-    output_prefix = f"../results/{output_prefix}"
+    output_prefix = f"./results/{output_prefix}"
     
     # Convert absolute timestamps to relative times
     t0 = df["time"].iloc[0]
@@ -205,7 +215,7 @@ def plot_inference_hist(times_list, output_prefix="mobilenet"):
         print("No inference times to plot histogram.")
         return
 
-    output_prefix = f"../results/{output_prefix}"
+    output_prefix = f"./results/{output_prefix}"
 
     plt.figure(figsize=(8, 4))
     plt.hist(times_list, bins='auto', alpha=0.7, edgecolor='black')
@@ -224,7 +234,7 @@ def plot_inference_hist(times_list, output_prefix="mobilenet"):
 
 
 def plot_segments(pre, infer_, post, prefix="mobilenet"):
-    prefix = f"../results/{prefix}"
+    prefix = f"./results/{prefix}"
     df = pd.DataFrame({
         "pre_ms": pre, "infer_ms": infer_, "post_ms": post
     })
@@ -245,8 +255,16 @@ def plot_segments(pre, infer_, post, prefix="mobilenet"):
 # 5. Main Entry Point
 # ---------------------
 def main():
-    model_path = "../model/mobilenet.tflite"
-    num_runs   = 1000
+    model_path = "./model/mobilenet.tflite"
+    # model_path= "./tpu/conv2d_tpu.tflite"
+    # model_path="./tpu/relu_tpu.tflite"
+    # num_runs   = 1000
+    num_runs   = 50
+
+    # Check if model exists
+    if not os.path.exists(model_path):
+        print(f"Error: Model file {model_path} not found!")
+        return
 
     # 5-1 Start system monitoring
     monitor_data = []
@@ -258,22 +276,45 @@ def main():
     )
     monitor_thread.start()
 
-    # 5-2 Inference loop
+    # 5-2 Prepare interpreter once (not in the loop!)
+    print(f"Preparing TPU interpreter for {model_path}...")
+    try:
+        itp, inp_idx, out_idx, dummy = prepare_interpreter(model_path, warmup=5, useTpu=True)
+        print("TPU interpreter ready.")
+    except Exception as e:
+        print(f"Error preparing TPU interpreter: {e}")
+        stop_event.set()
+        monitor_thread.join()
+        return
+
+    # 5-3 Inference loop
     pre_list, infer_list, post_list, total_list = [], [], [], []
-    print(f"Running {num_runs} inferences on {model_path} ...")
-    for _ in range(num_runs):
-        itp, inp_idx, out_idx, dummy = prepare_interpreter(model_path, warmup=0, useTpu=True)
-        t_pre, t_inf, t_post, t_tot = run_once(itp, inp_idx, out_idx, dummy)
-        pre_list.append(t_pre)
-        infer_list.append(t_inf)
-        post_list.append(t_post)
-        total_list.append(t_tot)
+    print(f"Running {num_runs} inferences...")
+    
+    for i in range(num_runs):
+        if i % 100 == 0:
+            print(f"Progress: {i}/{num_runs}")
+        
+        try:
+            t_pre, t_inf, t_post, t_tot = run_once(itp, inp_idx, out_idx, dummy)
+            pre_list.append(t_pre)
+            infer_list.append(t_inf)
+            post_list.append(t_post)
+            total_list.append(t_tot)
+        except Exception as e:
+            print(f"Error during inference {i}: {e}")
+            continue
 
     print("Inferences finished.")
+    print(f"Average inference time: {np.mean(total_list):.2f} ms")
+    print(f"Min/Max inference time: {np.min(total_list):.2f} / {np.max(total_list):.2f} ms")
 
-    # 5-3 Plot results and stop monitoring
+    # 5-4 Plot results and stop monitoring
     stop_event.set()
     monitor_thread.join()
+
+    # Create results directory if it doesn't exist
+    os.makedirs("./results", exist_ok=True)
 
     plot_monitor_data(monitor_data, "mobilenet_monitor")
     plot_inference_hist(total_list, "mobilenet")

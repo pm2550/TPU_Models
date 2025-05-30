@@ -117,10 +117,12 @@ def run_once(interpreter, inp_idx, out_idx, dummy):
 # ---------------------
 # 4. plotting functions
 # ---------------------
-def plot_monitor_data(data_list, output_prefix="monitor"):
+def plot_monitor_data(data_list, output_dir="./results", output_prefix="monitor"):
     """
     Plots the time-series data of CPU/memory/IO/temperature.
+    All outputs are saved in output_dir.
     """
+    os.makedirs(output_dir, exist_ok=True)
     df = pd.DataFrame(data_list)
     if df.empty:
         print("No system monitor data to plot.")
@@ -130,7 +132,7 @@ def plot_monitor_data(data_list, output_prefix="monitor"):
     t0 = df["time"].iloc[0]
     df["relative_time"] = df["time"] - t0
 
-    output_prefix = f"./results/{output_prefix}"
+    output_prefix = os.path.join(output_dir, output_prefix)
 
     # 4.1 CPU Usage
     plt.figure(figsize=(8, 4))
@@ -194,17 +196,16 @@ def plot_monitor_data(data_list, output_prefix="monitor"):
     df.to_csv(f"{output_prefix}_stats.csv", index=False)
     print(f"System monitor data and charts have been saved to {output_prefix}_*.png / CSV.")
 
-def plot_inference_hist(times_list, output_prefix="mobilenet"):
+def plot_inference_hist(times_list, output_dir="./results", output_prefix="mobilenet"):
     """
-    Plots a histogram of the inference times.
-    X-axis: Inference time (seconds)
-    Y-axis: Number of inferences
+    Plots a histogram of the inference times. All outputs are saved in output_dir.
     """
     if not times_list:
         print("No inference times to plot histogram.")
         return
 
-    output_prefix = f"./results/{output_prefix}"
+    os.makedirs(output_dir, exist_ok=True)
+    output_prefix = os.path.join(output_dir, output_prefix)
 
     plt.figure(figsize=(8, 4))
     plt.hist(times_list, bins='auto', alpha=0.7, edgecolor='black')
@@ -222,8 +223,9 @@ def plot_inference_hist(times_list, output_prefix="mobilenet"):
     print(f"Inference time histogram and CSV saved: {output_prefix}_inference_time_hist.png / CSV")
 
 
-def plot_segments(pre, infer_, post, prefix="mobilenet"):
-    prefix = f"./results/{prefix}"
+def plot_segments(pre, infer_, post, output_dir="./results", prefix="mobilenet"):
+    os.makedirs(output_dir, exist_ok=True)
+    prefix = os.path.join(output_dir, prefix)
     df = pd.DataFrame({
         "pre_ms": pre, "infer_ms": infer_, "post_ms": post
     })
@@ -244,11 +246,13 @@ def plot_segments(pre, infer_, post, prefix="mobilenet"):
 # 5. Main Entry Point
 # ---------------------
 def main():
-    model_path1 = "./model/mobilenet.tflite"
-    model_path2 = "./model/mobilenet2.tflite"
+    # model_path1 = "./model/mobilenet.tflite"
+    # model_path2 = "./model/mobilenet2.tflite"
     # model_path = "./model/mobilenet_cpu2.tflite"
+    model_path1 = "./model/test for cache/7m.tflite"
+    model_path2 = "./model/test for cache/mn7.tflite"
     num_runs   = 1000
- 
+
     # 5-1 Start system monitoring
     monitor_data = []
     stop_event   = threading.Event()
@@ -260,20 +264,33 @@ def main():
     monitor_thread.start()
 
     # 5-2 Inference loop
-    pre_list, infer_list, post_list, total_list = [], [], [], []
+    pre1_list, infer1_list, post1_list, total1_list = [], [], [], []
+    pre2_list, infer2_list, post2_list, total2_list = [], [], [], []
 
-    print(f"Running {num_runs} inferences on {model_path1} ...")
+    # 获取模型名用于文件夹
+    model1_name = os.path.splitext(os.path.basename(model_path1))[0]
+    model2_name = os.path.splitext(os.path.basename(model_path2))[0]
+    outdir1 = os.path.join("./results", model1_name)
+    outdir2 = os.path.join("./results", model2_name)
+    os.makedirs(outdir1, exist_ok=True)
+    os.makedirs(outdir2, exist_ok=True)
+
+    print(f"Running {num_runs} inferences on {model_path1} and {model_path2} ...")
     itp1, inp1, out1, dummy1 = prepare_interpreter(model_path1, warmup=5, useTpu=True)
     itp2, inp2, out2, dummy2 = prepare_interpreter(model_path2, warmup=5, useTpu=True)
-    for _ in range(num_runs):
-        if(_%2==0):
-            t_pre, t_inf, t_post, t_tot =run_once(itp1,inp1,out1,dummy1)
+    for i in range(num_runs):
+        if i % 2 == 0:
+            t_pre, t_inf, t_post, t_tot = run_once(itp1, inp1, out1, dummy1)
+            pre1_list.append(t_pre)
+            infer1_list.append(t_inf)
+            post1_list.append(t_post)
+            total1_list.append(t_tot)
         else:
-            t_pre, t_inf, t_post, t_tot =run_once(itp2,inp2,out2,dummy2)
-        pre_list.append(t_pre)
-        infer_list.append(t_inf)
-        post_list.append(t_post)
-        total_list.append(t_tot)
+            t_pre, t_inf, t_post, t_tot = run_once(itp2, inp2, out2, dummy2)
+            pre2_list.append(t_pre)
+            infer2_list.append(t_inf)
+            post2_list.append(t_post)
+            total2_list.append(t_tot)
 
     print("Inferences finished.")
 
@@ -281,9 +298,12 @@ def main():
     stop_event.set()
     monitor_thread.join()
 
-    plot_monitor_data(monitor_data, "mobilenet_monitor")
-    plot_inference_hist(total_list, "mobilenet") 
-    plot_segments(pre_list, infer_list, post_list, "mobilenet")
+    plot_monitor_data(monitor_data, outdir1, f"{model1_name}_monitor")
+    plot_inference_hist(total1_list, outdir1, model1_name)
+    plot_segments(pre1_list, infer1_list, post1_list, outdir1, model1_name)
+    plot_monitor_data(monitor_data, outdir2, f"{model2_name}_monitor")
+    plot_inference_hist(total2_list, outdir2, model2_name)
+    plot_segments(pre2_list, infer2_list, post2_list, outdir2, model2_name)
 
 
 if __name__ == "__main__":
