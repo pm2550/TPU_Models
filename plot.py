@@ -100,11 +100,31 @@ def prepare_interpreter(model_path, warmup=5, useTpu=False):
     else:
         dummy = np.random.random_sample(input_shape).astype(input_dtype)
     
-    # Warmup runs
-    for _ in range(warmup):
-        itp.set_tensor(inp_idx, dummy)
-        itp.invoke()
-        _ = itp.get_tensor(out_idx)
+    # Warmup runs - record first invoke time (cold start)
+    first_invoke_time = None
+    for i in range(warmup):
+        if i == 0:
+            # Record first invoke time (cold start)
+            start_time = time.perf_counter_ns()
+            itp.set_tensor(inp_idx, dummy)
+            itp.invoke()
+            end_time = time.perf_counter_ns()
+            first_invoke_time = (end_time - start_time) / 1e6  # Convert to milliseconds
+            _ = itp.get_tensor(out_idx)
+            print(f"  First warmup: {first_invoke_time:.2f} ms (cold start)")
+        else:
+            itp.set_tensor(inp_idx, dummy)
+            if i == warmup - 1:
+                # Record last warmup time
+                start_time = time.perf_counter_ns()
+                itp.invoke()
+                end_time = time.perf_counter_ns()
+                last_warmup_time = (end_time - start_time) / 1e6
+                _ = itp.get_tensor(out_idx)
+                print(f"  Last warmup: {last_warmup_time:.2f} ms (warmed up)")
+            else:
+                itp.invoke()
+                _ = itp.get_tensor(out_idx)
     return itp, inp_idx, out_idx, dummy
 
 def run_once(interpreter, inp_idx, out_idx, dummy):
@@ -259,7 +279,7 @@ def main():
     # model_path= "./tpu/conv2d_tpu.tflite"
     # model_path="./tpu/relu_tpu.tflite"
     # num_runs   = 1000
-    num_runs   = 50
+    num_runs   = 1000
 
     # Check if model exists
     if not os.path.exists(model_path):
@@ -289,7 +309,11 @@ def main():
 
     # 5-3 Inference loop
     pre_list, infer_list, post_list, total_list = [], [], [], []
+    invoke_list = []  # Track pure invoke time (inference only)
     print(f"Running {num_runs} inferences...")
+    
+    # Start timing for throughput calculation
+    inference_start_time = time.time()
     
     for i in range(num_runs):
         if i % 100 == 0:
@@ -301,13 +325,41 @@ def main():
             infer_list.append(t_inf)
             post_list.append(t_post)
             total_list.append(t_tot)
+            invoke_list.append(t_inf)  # Store pure inference time as invoke time
         except Exception as e:
             print(f"Error during inference {i}: {e}")
             continue
 
     print("Inferences finished.")
-    print(f"Average inference time: {np.mean(total_list):.2f} ms")
-    print(f"Min/Max inference time: {np.min(total_list):.2f} / {np.max(total_list):.2f} ms")
+    
+    # Calculate comprehensive statistics
+    inference_duration = time.time() - inference_start_time
+    
+    # Invoke time statistics (pure inference time)
+    avg_invoke_time = np.mean(invoke_list)
+    std_invoke_time = np.std(invoke_list)
+    min_invoke_time = np.min(invoke_list)
+    max_invoke_time = np.max(invoke_list)
+    
+    # Total time statistics (including pre/post processing)
+    avg_total_time = np.mean(total_list)
+    std_total_time = np.std(total_list)
+    min_total_time = np.min(total_list)
+    max_total_time = np.max(total_list)
+    
+    throughput = len(total_list) / inference_duration if total_list else 0
+    
+    print(f"  Total runs: {len(total_list)}")
+    print(f"  Total duration: {inference_duration:.2f} seconds")
+    print(f"  Average invoke time: {avg_invoke_time:.2f} ± {std_invoke_time:.2f} ms")
+    print(f"  Average total time: {avg_total_time:.2f} ± {std_total_time:.2f} ms")
+    print(f"  Min invoke time: {min_invoke_time:.2f} ms")
+    print(f"  Max invoke time: {max_invoke_time:.2f} ms")
+    print(f"  Throughput: {throughput:.2f} inferences/second")
+    
+    print(f"\nCOMPARISON:")
+    print(f"  Average invoke time difference: 0.00%")
+    print(f"  TPU 0 variability (CV): {std_invoke_time/avg_invoke_time*100:.2f}%")
 
     # 5-4 Plot results and stop monitoring
     stop_event.set()

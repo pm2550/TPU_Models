@@ -29,7 +29,31 @@ def run_tpu_inference(tpu_id, cpu_id, model_path, num_runs, delay_seconds, resul
         
         print(f"TPU {tpu_id}: Starting inference on CPU {cpu_id}")
         
-        # 加载模型到指定TPU
+        # 首先加载并invoke一次6m模型（用于缓存预热，不计入统计）
+        cache_model_path = "./model/test for cache/7m.tflite"
+        if os.path.exists(cache_model_path):
+            print(f"TPU {tpu_id}: Pre-loading cache model (6m.tflite)...")
+            cache_interpreter = make_interpreter(cache_model_path, device=f':{tpu_id}')
+            cache_interpreter.allocate_tensors()
+            
+            cache_input_details = cache_interpreter.get_input_details()
+            cache_input_shape = cache_input_details[0]['shape']
+            if cache_input_details[0]['dtype'] == np.uint8:
+                cache_dummy_input = np.random.randint(0, 256, cache_input_shape, dtype=np.uint8)
+            else:
+                cache_dummy_input = np.random.rand(*cache_input_shape).astype(np.float32)
+            
+            # 执行一次6m模型invoke（不计入统计）
+            cache_interpreter.set_tensor(cache_input_details[0]['index'], cache_dummy_input)
+            cache_interpreter.invoke()
+            print(f"TPU {tpu_id}: Cache model (6m.tflite) pre-loaded successfully")
+            
+            # 释放缓存模型解释器
+            del cache_interpreter
+        else:
+            print(f"TPU {tpu_id}: Warning - cache model not found: {cache_model_path}")
+        
+        # 加载主要测试模型到指定TPU  
         interpreter = make_interpreter(model_path, device=f':{tpu_id}')
         interpreter.allocate_tensors()
         
@@ -43,8 +67,8 @@ def run_tpu_inference(tpu_id, cpu_id, model_path, num_runs, delay_seconds, resul
         else:
             dummy_input = np.random.rand(*input_shape).astype(np.float32)
         
-        # 预热
-        print(f"TPU {tpu_id}: Warming up...")
+        # 预热主要测试模型
+        print(f"TPU {tpu_id}: Warming up main model...")
         for _ in range(10):
             interpreter.set_tensor(input_details[0]['index'], dummy_input)
             interpreter.invoke()
@@ -270,7 +294,7 @@ def print_summary(results_list):
 
 def main():
     # 配置
-    model_path = "./model/mobilenet.tflite"  # 使用plot.py中的模型
+    model_path = "./model/test for cache/mn7.tflite"  # 使用mn6模型进行测试
     num_runs = 1000
     tpu_configs = [
         {'tpu_id': 0, 'cpu_id': 1, 'delay': 0},    # TPU 0, CPU 1, 立即开始
@@ -278,7 +302,8 @@ def main():
     ]
     
     print("Starting dual TPU interference test...")
-    print(f"Model: {model_path}")
+    print(f"Cache pre-load model: ./model/test for cache/6m.tflite")
+    print(f"Main test model: {model_path}")
     print(f"Runs per TPU: {num_runs}")
     print("="*50)
     
