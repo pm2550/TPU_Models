@@ -36,7 +36,7 @@ def load_and_merge_results():
 
 def create_comparison_plots(df):
     """
-    创建CPU vs TPU对比图表
+    创建CPU vs TPU对比图表 - 分为独立的图表
     """
     if df.empty:
         print("No data to plot!")
@@ -71,112 +71,134 @@ def create_comparison_plots(df):
             cpu_core_powers.append(cpu_data.get('avg_bound_core_power_w', pd.Series([0])).iloc[0])
             tpu_powers.append(tpu_data['avg_power_w'].iloc[0])
     
-    # 创建对比图表
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+    # 确保results文件夹存在
+    os.makedirs("./results", exist_ok=True)
     
+    # 图表1: 推理时间对比
+    plt.figure(figsize=(12, 8))
     x = np.arange(len(common_layers))
     width = 0.35
     
-    # 推理时间对比
-    bars1 = ax1.bar(x - width/2, cpu_times, width, label='CPU', alpha=0.8, color='skyblue')
-    bars2 = ax1.bar(x + width/2, tpu_times, width, label='TPU', alpha=0.8, color='orange')
-    ax1.set_xlabel("Layer Type")
-    ax1.set_ylabel("Inference Time (ms)")
-    ax1.set_title("Inference Time Comparison: CPU vs TPU")
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(common_layers, rotation=45)
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
+    bars1 = plt.bar(x - width/2, cpu_times, width, label='CPU', alpha=0.8, color='skyblue')
+    bars2 = plt.bar(x + width/2, tpu_times, width, label='TPU', alpha=0.8, color='orange')
+    plt.xlabel("Layer Type")
+    plt.ylabel("Inference Time (ms)")
+    plt.title("Inference Time Comparison: CPU vs TPU")
+    plt.xticks(x, common_layers, rotation=45)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
     
     # 添加数值标签
     for bar in bars1:
         height = bar.get_height()
-        ax1.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{height:.2f}', ha='center', va='bottom')
     for bar in bars2:
         height = bar.get_height()
-        ax1.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{height:.2f}', ha='center', va='bottom')
     
-    # 功耗对比 - 三种功耗柱状图
+    plt.tight_layout()
+    plt.savefig('./results/1_inference_time_comparison.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
+    # 图表2: 功耗对比
+    plt.figure(figsize=(12, 8))
     x = np.arange(len(common_layers))
     width = 0.25
     
-    bars3 = ax2.bar(x - width, cpu_system_powers, width, label='CPU System Power', 
+    bars3 = plt.bar(x - width, cpu_system_powers, width, label='CPU System Power', 
                    alpha=0.8, color='lightcoral', edgecolor='darkred')
-    bars4 = ax2.bar(x, cpu_core_powers, width, label='CPU Core Power', 
+    bars4 = plt.bar(x, cpu_core_powers, width, label='CPU Core Power', 
                    alpha=0.8, color='orange', edgecolor='darkorange')
-    bars5 = ax2.bar(x + width, tpu_powers, width, label='TPU Power', 
+    bars5 = plt.bar(x + width, tpu_powers, width, label='TPU Power', 
                    alpha=0.8, color='green', edgecolor='darkgreen')
-    ax2.set_xlabel("Layer Type")
-    ax2.set_ylabel("Power Consumption (W)")
-    ax2.set_title("Power Consumption Comparison: CPU vs TPU")
-    ax2.set_xticks(x)
-    ax2.set_xticklabels(common_layers, rotation=45)
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
+    plt.xlabel("Layer Type")
+    plt.ylabel("Power Consumption (W)")
+    plt.title("Power Consumption Comparison: CPU vs TPU")
+    plt.xticks(x, common_layers, rotation=45)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
     
     # 添加数值标签
     for bar, power in zip(bars3, cpu_system_powers):
         height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{power:.2f}', ha='center', va='bottom', fontsize=8)
     for bar, power in zip(bars4, cpu_core_powers):
         height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{power:.2f}', ha='center', va='bottom', fontsize=8)
     for bar, power in zip(bars5, tpu_powers):
         height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{power:.2f}', ha='center', va='bottom', fontsize=8)
     
-    # 加速比
+    plt.tight_layout()
+    plt.savefig('./results/2_power_consumption_comparison.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
+    # 图表3: 加速比
+    plt.figure(figsize=(12, 8))
     speedup = [cpu/tpu if tpu > 0 else 0 for cpu, tpu in zip(cpu_times, tpu_times)]
-    bars6 = ax3.bar(common_layers, speedup, alpha=0.8, color='purple')
-    ax3.set_xlabel("Layer Type")
-    ax3.set_ylabel("Speedup (CPU Time / TPU Time)")
-    ax3.set_title("TPU Speedup over CPU")
-    ax3.tick_params(axis='x', rotation=45)
-    ax3.grid(True, alpha=0.3)
-    ax3.axhline(y=1, color='red', linestyle='--', alpha=0.7, label='No speedup')
-    ax3.legend()
+    bars6 = plt.bar(common_layers, speedup, alpha=0.8, color='purple')
+    plt.xlabel("Layer Type")
+    plt.ylabel("Speedup (CPU Time / TPU Time)")
+    plt.title("TPU Speedup over CPU")
+    plt.xticks(rotation=45)
+    plt.grid(True, alpha=0.3)
+    plt.axhline(y=1, color='red', linestyle='--', alpha=0.7, label='No speedup')
+    plt.legend()
     
     # 添加数值标签
     for bar in bars6:
         height = bar.get_height()
-        ax3.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{height:.2f}x', ha='center', va='bottom')
     
-    # 能效比 (时间/功耗，越小越好)
+    plt.tight_layout()
+    plt.savefig('./results/3_speedup_comparison.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    plt.close()
+    
+    # 图表4: 能效比
+    plt.figure(figsize=(12, 8))
     cpu_efficiency = [time/power if power > 0 else 0 for time, power in zip(cpu_times, cpu_system_powers)]
     tpu_efficiency = [time/power if power > 0 else 0 for time, power in zip(tpu_times, tpu_powers)]
     
-    bars7 = ax4.bar(x - width/2, cpu_efficiency, width, label='CPU', alpha=0.8, color='lightblue')
-    bars8 = ax4.bar(x + width/2, tpu_efficiency, width, label='TPU', alpha=0.8, color='lightgreen')
-    ax4.set_xlabel("Layer Type")
-    ax4.set_ylabel("ms/W (lower is better)")
-    ax4.set_title("Energy Efficiency Comparison")
-    ax4.set_xticks(x)
-    ax4.set_xticklabels(common_layers, rotation=45)
-    ax4.legend()
-    ax4.grid(True, alpha=0.3)
+    x = np.arange(len(common_layers))
+    width = 0.35
+    bars7 = plt.bar(x - width/2, cpu_efficiency, width, label='CPU', alpha=0.8, color='lightblue')
+    bars8 = plt.bar(x + width/2, tpu_efficiency, width, label='TPU', alpha=0.8, color='lightgreen')
+    plt.xlabel("Layer Type")
+    plt.ylabel("ms/W (lower is better)")
+    plt.title("Energy Efficiency Comparison")
+    plt.xticks(x, common_layers, rotation=45)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
     
     # 添加数值标签
     for bar in bars7:
         height = bar.get_height()
-        ax4.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{height:.2f}', ha='center', va='bottom')
     for bar in bars8:
         height = bar.get_height()
-        ax4.text(bar.get_x() + bar.get_width()/2., height,
+        plt.text(bar.get_x() + bar.get_width()/2., height,
                 f'{height:.2f}', ha='center', va='bottom')
     
     plt.tight_layout()
-    
-    # 保存图表
-    os.makedirs("./results", exist_ok=True)
-    plt.savefig('./results/cpu_vs_tpu_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig('./results/4_energy_efficiency_comparison.png', dpi=300, bbox_inches='tight')
     plt.show()
+    plt.close()
+    
+    print("✅ 四张独立对比图表已保存:")
+    print("  1. ./results/1_inference_time_comparison.png")
+    print("  2. ./results/2_power_consumption_comparison.png") 
+    print("  3. ./results/3_speedup_comparison.png")
+    print("  4. ./results/4_energy_efficiency_comparison.png")
     
     # 打印统计摘要
     print("\n" + "="*80)
@@ -207,7 +229,11 @@ def main():
         print(f"Found {len(df)} total results")
         print("Creating comparison plots...")
         create_comparison_plots(df)
-        print("Comparison completed! Check './results/cpu_vs_tpu_comparison.png'")
+        print("Comparison completed! Check './results/' folder for 4 separate charts:")
+        print("  1. 1_inference_time_comparison.png")
+        print("  2. 2_power_consumption_comparison.png") 
+        print("  3. 3_speedup_comparison.png")
+        print("  4. 4_energy_efficiency_comparison.png")
     else:
         print("No data available for comparison")
 

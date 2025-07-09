@@ -456,11 +456,13 @@ def main():
     # CPU模型配置
     model_configs = [
         "conv2d_cpu.tflite",
-        "depthwise_conv2d_cpu.tflite", 
+        "depthwise_conv2d_cpu.tflite",
+        "separable_conv_cpu.tflite", 
         "max_pool_cpu.tflite",
         "avg_pool_cpu.tflite",
         "dense_cpu.tflite",
-        "relu_cpu.tflite"
+        "feature_pyramid_cpu.tflite",
+        "detection_head_cpu.tflite"
     ]
     
     models_dir = "./cpu"

@@ -15,8 +15,49 @@ except ImportError:
     exit(1)
 
 def build_tpu_interpreter(model_path):
-    """构建TPU解释器"""
-    return make_interpreter(model_path)
+    """构建TPU解释器，优先选择USB 3.0设备"""
+    from pycoral.utils import edgetpu
+    
+    # 获取所有可用的EdgeTPU设备
+    devices = edgetpu.list_edge_tpus()
+    
+    if not devices:
+        print("❌ 未找到任何EdgeTPU设备")
+        return None
+    
+    print(f"发现 {len(devices)} 个EdgeTPU设备:")
+    
+    # 寻找USB 3.0设备
+    usb3_device_index = None
+    for i, device in enumerate(devices):
+        path = device['path']
+        try:
+            with open(f'{path}/speed', 'r') as f:
+                speed = f.read().strip()
+            
+            usb_type = "USB 3.0 SuperSpeed" if speed == '5000' else "USB 2.0 High Speed"
+            print(f"  设备 {i}: {path} ({usb_type}, {speed} Mbps)")
+            
+            # 优先选择USB 3.0设备
+            if speed == '5000' and usb3_device_index is None:
+                usb3_device_index = i
+                
+        except Exception as e:
+            print(f"  设备 {i}: {path} (无法读取速度信息)")
+    
+    # 选择设备策略
+    if usb3_device_index is not None:
+        print(f"✅ 选择USB 3.0设备 (索引: {usb3_device_index}) 获得最佳性能")
+        try:
+            # 通过设备索引指定USB 3.0设备
+            device_spec = f":{usb3_device_index}"
+            return make_interpreter(model_path, device=device_spec)
+        except Exception as e:
+            print(f"⚠️  USB 3.0设备加载失败，使用默认设备: {e}")
+            return make_interpreter(model_path)
+    else:
+        print("⚠️  未找到USB 3.0设备，使用默认设备 (性能可能受限)")
+        return make_interpreter(model_path)
 
 def prepare_tpu_interpreter(model_path, warmup=10):
     """准备TPU解释器并进行预热"""
@@ -240,10 +281,12 @@ def main():
     model_configs = [
         "conv2d_tpu.tflite",
         "depthwise_conv2d_tpu.tflite",
+        "separable_conv_tpu.tflite",
         "max_pool_tpu.tflite",
         "avg_pool_tpu.tflite",
         "dense_tpu.tflite",
-        "relu_tpu.tflite"
+        "feature_pyramid_tpu.tflite",
+        "detection_head_tpu.tflite"
     ]
     
     models_dir = "./tpu"

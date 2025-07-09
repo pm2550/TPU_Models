@@ -582,7 +582,7 @@ public:
 
 int main() {
     const string model_path = "./model/mobilenet.tflite";  // Edge TPU model
-    const int num_runs = 1000;
+    const int num_runs = 10000;
     
     // Check if model exists
     if (!filesystem::exists(model_path)) {
