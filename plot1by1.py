@@ -251,6 +251,7 @@ def main():
     # model_path = "./model/mobilenet_cpu2.tflite"
     model_path1 = "./model/test for cache/7m.tflite"
     model_path2 = "./model/test for cache/mn7.tflite"
+    # model_path2="./edgetpu/test_data/inception_v1_224_quant_edgetpu.tflite"
     num_runs   = 1000
 
     # 5-1 Start system monitoring
