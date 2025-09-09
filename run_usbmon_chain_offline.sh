@@ -102,7 +102,7 @@ PY
 # 采集前预留窗口（可通过 LEAD_S 指定，默认 0）
 sleep "${LEAD_S:-0}"
 
-# 运行链式推理：seg1..seg8，预热10次，记录每段invoke窗口（CLOCK_BOOTTIME）
+# 运行链式推理：seg1..seg8，按环境变量 WARMUP 预热（默认10），记录每段invoke窗口（CLOCK_BOOTTIME）
 "$RUN_PY" - "$TPU_DIR" "$OUTDIR" "$COUNT" <<'PY'
 import sys, os, time, json, glob, numpy as np
 
@@ -149,8 +149,8 @@ else:
 def now():
     return time.clock_gettime(time.CLOCK_BOOTTIME)
 
-# 预热 10 次链式
-for _ in range(10):
+WARMUP = int(os.environ.get('WARMUP', '10'))
+for _ in range(WARMUP):
     x = x0
     for it in itps:
         inp = it.get_input_details()[0]

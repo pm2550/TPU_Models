@@ -52,17 +52,21 @@ def get_bus() -> str:
 def run_sim_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     os.makedirs(out_dir, exist_ok=True)
     env = os.environ.copy()
+    env['WARMUP'] = '0'
     # 无预热，脚本内部固定每段一次、循环100次
     cmd = [SIM_CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, "15"]
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 def run_real_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     os.makedirs(out_dir, exist_ok=True)
     env = os.environ.copy()
-    # 真实链式：脚本内部预热10次，每段记录100次 invoke；默认持续 20s，可通过 CAP_DUR 覆盖
+    # 真实链式（combo）：只跑一次，不预热
+    env['WARMUP'] = '0'
+    env['COUNT'] = '1'
+    # 默认持续 20s，可通过 CAP_DUR 覆盖
     dur = os.environ.get('CAP_DUR', '20')
     cmd = [CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num: int):
     usbmon_file = os.path.join(combo_root, "usbmon.txt")
@@ -75,13 +79,16 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
     if not (os.path.exists(usbmon_file) and os.path.exists(time_map_file) and os.path.exists(invokes_file) and os.path.exists(io_file)):
         return None
 
-    # 活跃IO分析（严格窗口；ACTIVE_EXPAND_MS=0），仅用于纯invoke扣除
+    # 活跃IO分析：统一改用 show_overlap_positions.py（严格窗口、事件精配）
+    SHOW_OVERLAP = "/home/10210/Desktop/OS/show_overlap_positions.py"
     try:
-        env = os.environ.copy(); env['ACTIVE_EXPAND_MS'] = '0'
-        res = subprocess.run([SYS_PY, ANALYZE_ACTIVE, usbmon_file, invokes_file, time_map_file], capture_output=True, text=True, check=True, env=env)
+        res = subprocess.run([VENV_PY, SHOW_OVERLAP, usbmon_file, invokes_file, time_map_file], capture_output=True, text=True, check=True)
         with open(active_file, 'w') as f:
             f.write(res.stdout)
-        active_data = json.loads(res.stdout or "{}")
+        # 复用 local_batch 的解析/整形逻辑：按文本解析关键数，再生成 per_invoke
+        from run_models_local_batch_usbmon import parse_overlap_analysis_output, generate_active_analysis_from_overlap
+        overlap_data = parse_overlap_analysis_output(res.stdout, 0)
+        active_data = generate_active_analysis_from_overlap(overlap_data, json.load(open(invokes_file)).get('spans', []))
     except Exception:
         active_data = {}
 
@@ -109,7 +116,7 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
             'count': len(arr),
         }
 
-    # IO 统计（全局最大重叠分配）：一次性处理整段窗口，避免跨段重复
+    # IO 统计（全局最大重叠分配）：一次性处理整段窗口，并按段聚合 per-invoke
     overall_avg = {
         'span_s': 0.0,
         'avg_bytes_in_per_invoke': 0.0,
@@ -140,17 +147,37 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
         res_corr = subprocess.run([VENV_PY, CORRECT_PER_INVOKE, usbmon_file, merged_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete", "--include", "overlap"], capture_output=True, text=True, check=True)
         txt = res_corr.stdout or ""
         import re as _re, json as _json
-        # 解析 JSON_SUMMARY（全局平均）
+        # 解析 per-invoke 明细（JSON_PER_INVOKE），按 seg 聚合出本段平均字节
         avg_in_bytes = avg_out_bytes = 0.0
-        mjson = _re.search(r"JSON_SUMMARY:\s*(\{.*\})", txt)
-        if mjson:
+        mj = _re.search(r"JSON_PER_INVOKE:\s*(\[.*\])", txt)
+        if mj:
             try:
-                js = _json.loads(mjson.group(1))
-                avg_in_bytes = float(js.get('warm_avg_in_bytes', 0.0) or 0.0)
-                avg_out_bytes = float(js.get('warm_avg_out_bytes', 0.0) or 0.0)
+                arr = _json.loads(mj.group(1))
+                # 找出本段对应的窗口区间（根据本段 invokes.json 的 begin/end，与 merged 中的顺序一致）
+                seg_spans = spans
+                # merged 已按时间排序，逐一对齐：用 begin/end 精确匹配
+                merged = _json.loads(open(merged_file).read())
+                all_spans = merged.get('spans', [])
+                idxs = []
+                ai = 0
+                for s in seg_spans:
+                    b = s['begin']; e = s['end']
+                    while ai < len(all_spans):
+                        ss = all_spans[ai]
+                        if abs(ss['begin'] - b) < 1e-9 and abs(ss['end'] - e) < 1e-9:
+                            idxs.append(ai)
+                            ai += 1
+                            break
+                        ai += 1
+                vals_in = [arr[i]['bytes_in'] for i in idxs if 0 <= i < len(arr)]
+                vals_out = [arr[i]['bytes_out'] for i in idxs if 0 <= i < len(arr)]
+                if vals_in:
+                    avg_in_bytes = sum(vals_in)/len(vals_in)
+                if vals_out:
+                    avg_out_bytes = sum(vals_out)/len(vals_out)
             except Exception:
                 avg_in_bytes = avg_out_bytes = 0.0
-        # 用本段的窗口均值换算速率（避免用全局 span）
+        # 用本段的窗口均值换算速率
         avg_span_s = (sum(invoke_ms)/len(invoke_ms)/1000.0) if invoke_ms else 0.0
         to_MiB = lambda b: (b/(1024.0*1024.0))
         overall_avg = {
@@ -203,9 +230,9 @@ def main():
     mode = args.mode
     print("==========================================")
     if mode == 'sim':
-        print("开始：K=2..8 组合，链式模拟（无预热、每段一次、循环100次）")
+        print("开始：K=2..8 组合，链式模拟（无预热、每段1次）")
     else:
-        print("开始：K=2..8 组合，真实链式（预热10次、循环100次）")
+        print("开始：K=2..8 组合，真实链式（无预热、每段1次）")
     print("==========================================")
 
     check_deps(mode)

@@ -390,6 +390,24 @@ def main():
         }
         print('JSON_SUMMARY:', _json.dumps(json_summary, ensure_ascii=False))
 
+    # 机器可解析的逐窗口结果（不跳过首个），便于上层做“按段聚合”
+    try:
+        import json as _json
+        per_invoke_payload = [
+            {
+                'invoke': int(i),
+                'bytes_in': int(r.get('bytes_in', 0)),
+                'bytes_out': int(r.get('bytes_out', 0)),
+                'span_s': float(r.get('span_s', 0.0)),
+                'in_active_s': float(r.get('in_active_s', 0.0)),
+                'out_active_s': float(r.get('out_active_s', 0.0)),
+            }
+            for i, r in enumerate(results)
+        ]
+        print('JSON_PER_INVOKE:', _json.dumps(per_invoke_payload, ensure_ascii=False))
+    except Exception:
+        pass
+
 
 if __name__ == '__main__':
     main()
