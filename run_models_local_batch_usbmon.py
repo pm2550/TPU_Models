@@ -383,7 +383,7 @@ def analyze_performance(outdir, model_name, seg_num):
             if not os.path.exists(corr_script):
                 raise FileNotFoundError(corr_script)
             res_corr = subprocess.run([
-                SYS_PY, corr_script, usbmon_file, invokes_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete"
+                VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete"
             ], capture_output=True, text=True, check=True)
             txt = res_corr.stdout or ""
             # 优先解析 JSON_SUMMARY

@@ -7,6 +7,7 @@ import sys
 import re
 import os
 import argparse
+from typing import Optional
 
 
 def parse_records(cap_file):
@@ -111,11 +112,13 @@ def build_urb_pairs(records):
                 continue
             dev = s['dev'] if s['dev'] is not None else r['dev']
             ep = s['ep'] if s['ep'] is not None else r['ep']
-            length = s['len'] if s['len'] is not None else 0
+            # 使用 C 行的 actual_length 优先；若无，则退回 S 行的 buffer 长度
+            length = r['len'] if r.get('len') is not None else (s['len'] if s.get('len') is not None else 0)
             ts_submit = s['ts']
             ts_complete = r['ts']
             duration = max(0.0, ts_complete - ts_submit)
             pairs.append({
+                'urb_id': urb_id,
                 'dir': direction,
                 'dev': dev,
                 'ep': ep,
@@ -127,7 +130,7 @@ def build_urb_pairs(records):
     return pairs
 
 
-def stat_window(pairs, win, usb_ref, bt_ref, epoch_ref=None, extra=0.0, mode: str = 'default', *, allow_dev=None, allow_ep_in=None, allow_ep_out=None):
+def stat_window(pairs, win, usb_ref, bt_ref, epoch_ref=None, extra=0.0, mode: str = 'default', *, allow_dev=None, allow_ep_in=None, allow_ep_out=None, include: str = 'full', seen_urb_ids: Optional[set] = None):
     """统计单个窗口的传输，完全按照原始脚本逻辑"""
     # 时间对齐：如果没有usbmon_ref但有epoch_ref，用epoch_ref对齐
     if usb_ref is None and epoch_ref is not None:
@@ -163,7 +166,15 @@ def stat_window(pairs, win, usb_ref, bt_ref, epoch_ref=None, extra=0.0, mode: st
             # 修正：不要对 URB 时间再次应用 extra，extra 仅对窗口扩展
             ts_s = p['ts_submit']
             ts_c = p['ts_complete']
-            if ts_s >= b0 and ts_c <= e0:
+            # 包含规则：full=完全包含；overlap=任意交叠
+            inside = (ts_s >= b0 and ts_c <= e0) if include == 'full' else (ts_c >= b0 and ts_s <= e0)
+            if inside:
+                # 跨窗去重：同一 URB 只计一次
+                if seen_urb_ids is not None:
+                    uid = p.get('urb_id')
+                    if uid in seen_urb_ids:
+                        continue
+                    seen_urb_ids.add(uid)
                 # 过滤异常小长包
                 if p['len'] < 64 and p['duration'] > 0.002:
                     continue
@@ -208,6 +219,7 @@ def main():
     parser.add_argument('--details', action='store_true', help='显示每次详情')
     parser.add_argument('--extra', type=float, default=0.0, help='扩展窗口秒数')
     parser.add_argument('--mode', choices=['default','bulk_complete'], default='default', help='统计口径')
+    parser.add_argument('--include', choices=['full','overlap'], default='overlap', help='URB 包含规则：full=完全在窗口内，overlap=任意交叠')
     parser.add_argument('--dev', type=int, default=None, help='仅统计指定设备号(DEV)')
     parser.add_argument('--ep-in', dest='ep_in', type=int, default=None, help='仅统计指定IN端点号(EP)')
     parser.add_argument('--ep-out', dest='ep_out', type=int, default=None, help='仅统计指定OUT端点号(EP)')
@@ -267,13 +279,74 @@ def main():
         auto_dev = int(env_dev)
     print(f"使用过滤: DEV={auto_dev}, EP_IN={auto_ep_in}, EP_OUT={auto_ep_out}")
     
-    # 统计每个窗口
+    # 若使用“任意交叠”，采用“最大重叠分配”逻辑，避免跨窗重复与零计数
     results = []
-    for i, win in enumerate(iv):
-        stat = stat_window(pairs, win, usb_ref, bt_ref, epoch_ref, args.extra, args.mode,
-                           allow_dev=auto_dev, allow_ep_in=auto_ep_in, allow_ep_out=auto_ep_out)
-        stat['invoke'] = i
-        results.append(stat)
+    if args.include == 'overlap':
+        # 预计算每个窗口的时间边界（映射到 usbmon 时间）
+        def map_win(w):
+            if usb_ref is None and bt_ref is None:
+                return (w['begin'] - args.extra, w['end'] + args.extra)
+            else:
+                b0 = (w['begin'] - bt_ref) + (usb_ref or 0.0) - args.extra
+                e0 = (w['end'] - bt_ref) + (usb_ref or 0.0) + args.extra
+                return (b0, e0)
+        win_bounds = [map_win(w) for w in iv]
+        # 初始化结果占位
+        for _ in iv:
+            results.append({'span_s': 0.0,'Bi':0,'Bo':0,'Ci':0,'Co':0,'bytes_in':0,'bytes_out':0,
+                            'MBps_in':0.0,'MBps_out':0.0,'in_active_s':0.0,'out_active_s':0.0})
+        in_times = [[] for _ in iv]
+        out_times = [[] for _ in iv]
+        # 过滤目标对（DEV/EP）
+        def allow(p):
+            if p['dir'] not in ('Bi','Bo'):
+                return False
+            if auto_dev is not None and p['dev'] is not None and p['dev'] != auto_dev:
+                return False
+            if p['dir']=='Bi' and auto_ep_in is not None and p['ep'] is not None and p['ep'] != auto_ep_in:
+                return False
+            if p['dir']=='Bo' and auto_ep_out is not None and p['ep'] is not None and p['ep'] != auto_ep_out:
+                return False
+            return True
+        # 为每个 URB 选择重叠最大的窗口并分配一次
+        for p in pairs:
+            if not allow(p):
+                continue
+            t0 = p['ts_submit']; t1 = p['ts_complete']
+            if p['len'] < 64 and p['duration'] > 0.002:
+                continue
+            best_i = -1; best_ov = 0.0
+            for i,(b0,e0) in enumerate(win_bounds):
+                ov = max(0.0, min(e0, t1) - max(b0, t0))
+                if ov > best_ov:
+                    best_ov = ov; best_i = i
+            if best_i < 0 or best_ov <= 0:
+                continue
+            r = results[best_i]
+            if p['dir']=='Bi':
+                r['Bi'] += 1; r['bytes_in'] += (p['len'] or 0); in_times[best_i].append(t1)
+            else:
+                r['Bo'] += 1; r['bytes_out'] += (p['len'] or 0); out_times[best_i].append(t1)
+        # 填充 span/速率与活跃时间
+        for i,(b0,e0) in enumerate(win_bounds):
+            r = results[i]
+            span = max(0.0, e0 - b0)
+            r['span_s'] = span
+            toMB = lambda x: x/(1024*1024.0)
+            r['MBps_in'] = (toMB(r['bytes_in'])/span) if span>0 else 0.0
+            r['MBps_out'] = (toMB(r['bytes_out'])/span) if span>0 else 0.0
+            r['in_active_s'] = (max(in_times[i]) - min(in_times[i])) if len(in_times[i])>1 else 0.0
+            r['out_active_s'] = (max(out_times[i]) - min(out_times[i])) if len(out_times[i])>1 else 0.0
+            r['invoke'] = i
+    else:
+        # 原有逐窗口统计（全包含）
+        for i, win in enumerate(iv):
+            seen_ids = set()
+            stat = stat_window(pairs, win, usb_ref, bt_ref, epoch_ref, args.extra, args.mode,
+                               allow_dev=auto_dev, allow_ep_in=auto_ep_in, allow_ep_out=auto_ep_out,
+                               include=args.include, seen_urb_ids=seen_ids)
+            stat['invoke'] = i
+            results.append(stat)
         
         if args.details:
             print(f"invoke {i}: IN={stat['bytes_in']:,}B OUT={stat['bytes_out']:,}B "

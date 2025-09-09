@@ -1,0 +1,21 @@
+densenet201_8seg_uniform_local MIB
+seg1: on_used 3.78, on_remain 3.41, off_used 0.359
+seg2: on_used 3.42, on_remain 4.39, off_used 0.536
+seg3: on_used 2.98, on_remain 4.59, off_used 0.533
+seg4: on_used 2.65, on_remain 4.74, off_used 0.264
+seg5: on_used 2.88, on_remain 4.98, off_used 0.472
+seg6: on_used 2.80, on_remain 5.03, off_used 0.505
+seg7: on_used 3.91, on_remain 3.81, off_used 0.441
+seg8: on_used 1.88, on_remain 5.84, off_used 0.000
+inceptionv3_8seg_uniform_local
+seg1..6: off_used 0.000
+seg7: off_used 0.799
+seg8: off_used 0.000
+resnet101_8seg_uniform_local
+seg1..6: off_used 0.000
+seg7: off_used 3.010
+seg8: off_used 0.000
+resnet50_8seg_uniform_local
+seg1..8: off_used 0.000
+xception_8seg_uniform_local
+seg1..8: off_used 0.000

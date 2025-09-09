@@ -1,0 +1,212 @@
+{
+  "densenet201_8seg_uniform_local": [
+    {
+      "seg": 1,
+      "OUT_bytes": 526967,
+      "IN_bytes": 137984
+    },
+    {
+      "seg": 2,
+      "OUT_bytes": 700021,
+      "IN_bytes": 250880
+    },
+    {
+      "seg": 3,
+      "OUT_bytes": 809771,
+      "IN_bytes": 326144
+    },
+    {
+      "seg": 4,
+      "OUT_bytes": 602968,
+      "IN_bytes": 43904
+    },
+    {
+      "seg": 5,
+      "OUT_bytes": 538832,
+      "IN_bytes": 65856
+    },
+    {
+      "seg": 6,
+      "OUT_bytes": 595387,
+      "IN_bytes": 83104
+    },
+    {
+      "seg": 7,
+      "OUT_bytes": 545526,
+      "IN_bytes": 1920
+    },
+    {
+      "seg": 8,
+      "OUT_bytes": 1920,
+      "IN_bytes": 1000
+    }
+  ],
+  "inceptionv3_8seg_uniform_local": [
+    {
+      "seg": 1,
+      "OUT_bytes": 268203,
+      "IN_bytes": 221952
+    },
+    {
+      "seg": 2,
+      "OUT_bytes": 221952,
+      "IN_bytes": 221952
+    },
+    {
+      "seg": 3,
+      "OUT_bytes": 221952,
+      "IN_bytes": 221952
+    },
+    {
+      "seg": 4,
+      "OUT_bytes": 221952,
+      "IN_bytes": 221952
+    },
+    {
+      "seg": 5,
+      "OUT_bytes": 221952,
+      "IN_bytes": 81920
+    },
+    {
+      "seg": 6,
+      "OUT_bytes": 81920,
+      "IN_bytes": 131072
+    },
+    {
+      "seg": 7,
+      "OUT_bytes": 968884,
+      "IN_bytes": 131072
+    },
+    {
+      "seg": 8,
+      "OUT_bytes": 131072,
+      "IN_bytes": 1000
+    }
+  ],
+  "resnet101_8seg_uniform_local": [
+    {
+      "seg": 1,
+      "OUT_bytes": 150528,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 2,
+      "OUT_bytes": 200704,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 3,
+      "OUT_bytes": 200704,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 4,
+      "OUT_bytes": 200704,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 5,
+      "OUT_bytes": 200704,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 6,
+      "OUT_bytes": 200704,
+      "IN_bytes": 100352
+    },
+    {
+      "seg": 7,
+      "OUT_bytes": 3256566,
+      "IN_bytes": 100352
+    },
+    {
+      "seg": 8,
+      "OUT_bytes": 100352,
+      "IN_bytes": 1000
+    }
+  ],
+  "resnet50_8seg_uniform_local": [
+    {
+      "seg": 1,
+      "OUT_bytes": 150528,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 2,
+      "OUT_bytes": 200704,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 3,
+      "OUT_bytes": 200704,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 4,
+      "OUT_bytes": 200704,
+      "IN_bytes": 200704
+    },
+    {
+      "seg": 5,
+      "OUT_bytes": 200704,
+      "IN_bytes": 100352
+    },
+    {
+      "seg": 6,
+      "OUT_bytes": 100352,
+      "IN_bytes": 100352
+    },
+    {
+      "seg": 7,
+      "OUT_bytes": 100352,
+      "IN_bytes": 100352
+    },
+    {
+      "seg": 8,
+      "OUT_bytes": 100352,
+      "IN_bytes": 1000
+    }
+  ],
+  "xception_8seg_uniform_local": [
+    {
+      "seg": 1,
+      "OUT_bytes": 268203,
+      "IN_bytes": 262808
+    },
+    {
+      "seg": 2,
+      "OUT_bytes": 262808,
+      "IN_bytes": 262808
+    },
+    {
+      "seg": 3,
+      "OUT_bytes": 262808,
+      "IN_bytes": 262808
+    },
+    {
+      "seg": 4,
+      "OUT_bytes": 262808,
+      "IN_bytes": 262808
+    },
+    {
+      "seg": 5,
+      "OUT_bytes": 262808,
+      "IN_bytes": 262808
+    },
+    {
+      "seg": 6,
+      "OUT_bytes": 262808,
+      "IN_bytes": 153600
+    },
+    {
+      "seg": 7,
+      "OUT_bytes": 153600,
+      "IN_bytes": 204800
+    },
+    {
+      "seg": 8,
+      "OUT_bytes": 204800,
+      "IN_bytes": 1000
+    }
+  ]
+}
