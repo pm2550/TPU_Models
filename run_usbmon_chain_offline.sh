@@ -44,10 +44,14 @@ if [[ ! -f "$PW" ]]; then
 fi
 
 # 启动 usbmon 采集
+# 先清理同 BUS 上的历史采集进程，避免残留占用导致“卡住”
+cat "$PW" | sudo -S -p '' pkill -f "/sys/kernel/debug/usb/usbmon/${BUS}u" 2>/dev/null || true
 cat "$PW" | sudo -S -p '' modprobe usbmon || true
 cat "$PW" | sudo -S -p '' sh -c ": > '$CAP'" || true
 cat "$PW" | sudo -S -p '' sh -c "cat '$USBMON_NODE' > '$CAP'" &
 CATPID=$!
+# 确保异常退出时也能回收采集进程
+trap 'kill "$CATPID" 2>/dev/null || true' INT TERM EXIT
 sleep 0.1
 
 # 启动映射记录器：读取首条 usbmon 行第二列，与 BOOTTIME 建立映射
@@ -117,19 +121,46 @@ def make_itp(model_path: str):
 np.random.seed(123)
 tpu_dir, out_dir, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
 paths = []
-for i in range(1, 9):
-    # 统一口径：优先 seg{i}_int8_edgetpu.tflite，其次任意 seg{i}_*_edgetpu.tflite
-    cands = sorted(glob.glob(os.path.join(tpu_dir, f"seg{i}_int8_edgetpu.tflite")))
-    if not cands:
-        cands = sorted(glob.glob(os.path.join(tpu_dir, f"seg{i}_*_edgetpu.tflite")))
-    if not cands:
-        print(f"MISSING seg{i} in {tpu_dir}")
-        sys.exit(1)
-    paths.append(cands[0])
+def parse_stage_index(p: str) -> int:
+    """从文件名推断阶段顺序：
+    - segN_*.tflite -> N
+    - tail_segX_to_Y_*.tflite -> X
+    兜底返回一个较大值以保持稳定排序。
+    """
+    bn = os.path.basename(p)
+    import re
+    m = re.match(r"seg(\d+)_", bn)
+    if m:
+        return int(m.group(1))
+    m = re.match(r"tail_seg(\d+)_?to_?\d+_", bn)
+    if m:
+        return int(m.group(1))
+    return 9999
 
-# 创建输出目录
-for i in range(1, 9):
-    os.makedirs(os.path.join(out_dir, f"seg{i}"), exist_ok=True)
+# 收集可用阶段模型：兼容 K<8 组合目录（含 tail_*）
+cand_files = sorted(glob.glob(os.path.join(tpu_dir, "*_edgetpu.tflite")))
+if not cand_files:
+    print(f"NO TFLITE in {tpu_dir}")
+    sys.exit(1)
+cand_files.sort(key=parse_stage_index)
+paths = cand_files
+
+def stage_label(p: str) -> str:
+    bn = os.path.basename(p)
+    import re
+    m = re.match(r"seg(\d+)_", bn)
+    if m:
+        return f"seg{int(m.group(1))}"
+    m = re.match(r"tail_seg(\d+)_?to_?(\d+)_", bn)
+    if m:
+        return f"seg{int(m.group(1))}to{int(m.group(2))}"
+    return "seg"
+
+# 创建输出目录（按实际阶段标签）
+num_stages = len(paths)
+labels = [stage_label(p) for p in paths]
+for lab in labels:
+    os.makedirs(os.path.join(out_dir, lab), exist_ok=True)
 
 # 构建解释器（一次性创建所有，然后重用）
 itps = [make_itp(p) for p in paths]
@@ -163,8 +194,8 @@ for _ in range(WARMUP):
         out = it.get_output_details()[0]
         x = it.get_tensor(out['index'])
 
-# 测量 COUNT 次，每段记录 invoke 时间窗口
-seg_spans = {i: [] for i in range(1,9)}
+# 测量 COUNT 次，每阶段记录 invoke 时间窗口
+seg_spans = {lab: [] for lab in labels}
 for _ in range(count):
     x = x0
     for si, it in enumerate(itps, start=1):
@@ -174,20 +205,25 @@ for _ in range(count):
             xi = np.resize(xi, inp['shape']).astype(inp['dtype'])
         it.set_tensor(inp['index'], xi)
         t0 = now(); it.invoke(); t1 = now()
-        seg_spans[si].append({'begin': t0, 'end': t1})
+        lab = labels[si-1]
+        seg_spans[lab].append({'begin': t0, 'end': t1})
         out = it.get_output_details()[0]
         x = it.get_tensor(out['index'])
 
-# 写出每段 invokes.json
-for si in range(1,9):
-    with open(os.path.join(out_dir, f"seg{si}", "invokes.json"), 'w') as f:
-        json.dump({'name': f"chain_seg{si}", 'spans': seg_spans[si]}, f)
+# 写出每段 invokes.json（按实际阶段标签）
+for lab in labels:
+    with open(os.path.join(out_dir, lab, "invokes.json"), 'w') as f:
+        json.dump({'name': f"chain_{lab}", 'spans': seg_spans[lab]}, f)
 PY
 
-# 等待到持续时间结束
-sleep "$DUR"
+if [[ "${STOP_ON_COUNT:-1}" == "1" ]]; then
+  : # 直接结束采集（按 COUNT 完成即停）
+else
+  # 等待到持续时间结束
+  sleep "$DUR"
+fi
 
-# 停止采集并修正权限
+# 停止采集并修正权限（无论哪种模式都停止）
 kill "$CATPID" 2>/dev/null || true
 sleep 0.1 || true
 cat "$PW" | sudo -S -p '' chown "$USER:$USER" "$CAP" "$TM" 2>/dev/null || true

@@ -52,7 +52,7 @@ def get_bus() -> str:
 def run_sim_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     os.makedirs(out_dir, exist_ok=True)
     env = os.environ.copy()
-    env['WARMUP'] = '0'
+    env.setdefault('WARMUP', '0')
     # 无预热，脚本内部固定每段一次、循环100次
     cmd = [SIM_CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, "15"]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -60,9 +60,9 @@ def run_sim_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
 def run_real_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     os.makedirs(out_dir, exist_ok=True)
     env = os.environ.copy()
-    # 真实链式（combo）：只跑一次，不预热
-    env['WARMUP'] = '0'
-    env['COUNT'] = '1'
+    # 真实链式（combo）：默认不预热、每段1次；若外部已提供 WARMUP/COUNT，则尊重外部
+    env.setdefault('WARMUP', '0')
+    env.setdefault('COUNT', '1')
     # 默认持续 20s，可通过 CAP_DUR 覆盖
     dur = os.environ.get('CAP_DUR', '20')
     cmd = [CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
@@ -128,15 +128,18 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
         # 为 combo 的“全局分配”改造：在 combo 根目录准备 merged_invokes.json（包含所有段窗口及 seg 索引）
         merged_file = os.path.join(combo_root, "merged_invokes.json")
         if not os.path.exists(merged_file):
-            # 合并 seg1..seg8 的 invokes.json
+            # 合并 combo_root 下所有以 seg 开头的目录（支持 seg2to8 等标签）
             merged = {'spans': []}
-            for s in range(1, 9):
-                seg_inv = os.path.join(combo_root, f"seg{s}", "invokes.json")
+            for name in sorted(os.listdir(combo_root)):
+                seg_path = os.path.join(combo_root, name)
+                if not (os.path.isdir(seg_path) and name.startswith('seg')):
+                    continue
+                seg_inv = os.path.join(seg_path, 'invokes.json')
                 if not os.path.exists(seg_inv):
                     continue
                 J = json.load(open(seg_inv))
                 for sp in (J.get('spans') or []):
-                    merged['spans'].append({'begin': sp['begin'], 'end': sp['end'], 'seg': s})
+                    merged['spans'].append({'begin': sp['begin'], 'end': sp['end'], 'seg_label': name})
             # 排序保证时间顺序
             merged['spans'].sort(key=lambda x: x['begin'])
             json.dump(merged, open(merged_file, 'w'))
@@ -153,22 +156,11 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
         if mj:
             try:
                 arr = _json.loads(mj.group(1))
-                # 找出本段对应的窗口区间（根据本段 invokes.json 的 begin/end，与 merged 中的顺序一致）
-                seg_spans = spans
-                # merged 已按时间排序，逐一对齐：用 begin/end 精确匹配
+                # 按 seg_label 聚合：从 merged_invokes.json 中筛出当前段的窗口索引
                 merged = _json.loads(open(merged_file).read())
                 all_spans = merged.get('spans', [])
-                idxs = []
-                ai = 0
-                for s in seg_spans:
-                    b = s['begin']; e = s['end']
-                    while ai < len(all_spans):
-                        ss = all_spans[ai]
-                        if abs(ss['begin'] - b) < 1e-9 and abs(ss['end'] - e) < 1e-9:
-                            idxs.append(ai)
-                            ai += 1
-                            break
-                        ai += 1
+                seg_label = os.path.basename(seg_dir)
+                idxs = [i for i, ss in enumerate(all_spans) if ss.get('seg_label') == seg_label]
                 vals_in = [arr[i]['bytes_in'] for i in idxs if 0 <= i < len(arr)]
                 vals_out = [arr[i]['bytes_out'] for i in idxs if 0 <= i < len(arr)]
                 if vals_in:
@@ -280,10 +272,16 @@ def main():
                 print("采集失败:", r.stderr[-200:])
                 continue
 
-            # 分析各段
+            # 分析各段（依据实际产生的 seg*/invokes.json 动态决定阶段数）
+            available_segs = []
             for seg in range(1, 9):
+                invp = os.path.join(combo_out, f"seg{seg}", "invokes.json")
+                if os.path.isfile(invp):
+                    available_segs.append(seg)
+            if not available_segs:
+                print("(分析失败) 未发现任何 seg*/invokes.json")
+            for seg in available_segs:
                 seg_dir = os.path.join(combo_out, f"seg{seg}")
-                os.makedirs(seg_dir, exist_ok=True)
                 s = analyze_performance(combo_out, seg_dir, f"{model_name}_K{k}", seg)
                 if s:
                     inv = s['inference_performance']['invoke_times']
