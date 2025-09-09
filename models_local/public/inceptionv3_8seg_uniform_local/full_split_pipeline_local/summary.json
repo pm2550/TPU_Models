@@ -1,0 +1,54 @@
+{
+  "model_name": "InceptionV3",
+  "segments": 8,
+  "size_range": [
+    1.0,
+    6.91
+  ],
+  "total_mb": 23.965423583984375,
+  "cut_points": [
+    "mixed4",
+    "mixed5",
+    "mixed6",
+    "mixed7",
+    "mixed8",
+    "mixed9",
+    "mixed10"
+  ],
+  "decisions": [
+    [
+      "mixed4",
+      3.742767
+    ],
+    [
+      "mixed5",
+      1.879486
+    ],
+    [
+      "mixed6",
+      1.879486
+    ],
+    [
+      "mixed7",
+      2.12558
+    ],
+    [
+      "mixed8",
+      1.680267
+    ],
+    [
+      "mixed9",
+      4.891205
+    ],
+    [
+      "mixed10",
+      5.87558
+    ],
+    [
+      "OUTPUT",
+      2.098236
+    ]
+  ],
+  "compliant_segments": 8,
+  "total_segments": 8
+}

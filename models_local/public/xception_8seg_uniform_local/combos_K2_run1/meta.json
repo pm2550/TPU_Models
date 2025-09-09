@@ -1,0 +1,15 @@
+{
+  "model": "Xception",
+  "k": 2,
+  "cut_names": [
+    "add_3",
+    "add_5",
+    "add_7",
+    "add_9",
+    "add_10",
+    "block14_sepconv1_act",
+    "block14_sepconv2_act"
+  ],
+  "created_at": "2025-09-05T19:23:19",
+  "scheme": "prefix + merged tail"
+}

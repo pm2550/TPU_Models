@@ -1,0 +1,54 @@
+{
+  "model_name": "Xception",
+  "segments": 8,
+  "size_range": [
+    1.0,
+    6.91
+  ],
+  "total_mb": 24.195892333984375,
+  "cut_points": [
+    "add_3",
+    "add_5",
+    "add_7",
+    "add_9",
+    "add_10",
+    "block14_sepconv1_act",
+    "block14_sepconv2_act"
+  ],
+  "decisions": [
+    [
+      "add_3",
+      3.242767
+    ],
+    [
+      "add_5",
+      3.512299
+    ],
+    [
+      "add_7",
+      3.512299
+    ],
+    [
+      "add_9",
+      3.512299
+    ],
+    [
+      "add_10",
+      1.774017
+    ],
+    [
+      "block14_sepconv1_act",
+      3.672455
+    ],
+    [
+      "block14_sepconv2_act",
+      3.129486
+    ],
+    [
+      "OUTPUT",
+      2.102142
+    ]
+  ],
+  "compliant_segments": 8,
+  "total_segments": 8
+}

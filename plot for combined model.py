@@ -283,8 +283,8 @@ def plot_segments(pre, infer_, post, prefix="mobilenet"):
 # 5. Main Entry Point
 # ---------------------
 def main():
-    # model_path = "./model/mobilenet.tflite"
-    model_path = "./model/mobilenet+.tflite"
+    model_path = "./model/mobilenet.tflite"
+    # model_path = "./model/mobilenet+.tflite"
     num_runs   = 500
 
     # 5-1 Start system monitoring

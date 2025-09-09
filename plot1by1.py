@@ -246,11 +246,11 @@ def plot_segments(pre, infer_, post, output_dir="./results", prefix="mobilenet")
 # 5. Main Entry Point
 # ---------------------
 def main():
-    # model_path1 = "./model/mobilenet.tflite"
-    # model_path2 = "./model/mobilenet2.tflite"
+    model_path1 = "./model/mobilenet.tflite"
+    model_path2 = "./model/mobilenet2.tflite"
     # model_path = "./model/mobilenet_cpu2.tflite"
-    model_path1 = "./model/test for cache/7m.tflite"
-    model_path2 = "./model/test for cache/mn7.tflite"
+    # model_path1 = "./model/test for cache/7m.tflite"
+    # model_path2 = "./model/test for cache/mn7.tflite"
     # model_path2="./edgetpu/test_data/inception_v1_224_quant_edgetpu.tflite"
     num_runs   = 1000
 
@@ -298,6 +298,17 @@ def main():
     # 5-3 Plot results and stop monitoring
     stop_event.set()
     monitor_thread.join()
+
+    # 打印平均推理时长（ms）
+    if total1_list:
+        avg_total1 = float(np.mean(total1_list))
+    else:
+        avg_total1 = float('nan')
+    if total2_list:
+        avg_total2 = float(np.mean(total2_list))
+    else:
+        avg_total2 = float('nan')
+    print(f"Average per-inference latency (ms): {model1_name}: {avg_total1:.3f}, {model2_name}: {avg_total2:.3f}")
 
     plot_monitor_data(monitor_data, outdir1, f"{model1_name}_monitor")
     plot_inference_hist(total1_list, outdir1, model1_name)

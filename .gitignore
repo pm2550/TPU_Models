@@ -1,0 +1,75 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# Editors/OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+nohup.out
+
+# Temporary/cache
+tmp/
+temp/
+cache/
+*.tmp
+
+# Generated results and captures
+results/
+**/usbmon.txt
+**/time_map.json
+**/invokes.json
+**/io_split_bt.json
+**/active_analysis*.json
+**/performance_summary.json
+**/model_summary.json
+**/batch_summary.json
+**/io_active*.json
+
+# Models and large artifacts
+segment_models/
+models/
+models_local/public/**/tpu/*.tflite
+models_local/public/**/tpu/*.edgetpu.tflite
+**/*.tflite
+**/*.edgetpu.tflite
+**/*.tflite.gz
+**/*.onnx
+**/*.pb
+**/*.h5
+**/*.pt
+**/*.pth
+**/*.npz
+**/*.npy
+
+# Combo & batch specific outputs (redundant with results/, kept explicit)
+results/models_local_batch_usbmon/
+results/models_local_combo_sim/
+results/models_local_combo_chain/
+
+# Keep important configs and docs
+!baselines/**
+!**/*.md
+!LICENSE
+!README
+!README.md
+!.gitignore
+!**/*.sh
+!**/*.py
+

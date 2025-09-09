@@ -1,0 +1,54 @@
+{
+  "model_name": "DenseNet201",
+  "segments": 8,
+  "size_range": [
+    1.0,
+    6.91
+  ],
+  "total_mb": 23.191986083984375,
+  "cut_points": [
+    "conv4_block14_concat",
+    "conv4_block32_concat",
+    "conv4_block44_concat",
+    "pool4_pool",
+    "conv5_block14_concat",
+    "conv5_block25_concat",
+    "avg_pool"
+  ],
+  "decisions": [
+    [
+      "conv4_block14_concat",
+      3.31308
+    ],
+    [
+      "conv4_block32_concat",
+      3.555267
+    ],
+    [
+      "conv4_block44_concat",
+      3.262299
+    ],
+    [
+      "pool4_pool",
+      2.871674
+    ],
+    [
+      "conv5_block14_concat",
+      3.043549
+    ],
+    [
+      "conv5_block25_concat",
+      3.066986
+    ],
+    [
+      "avg_pool",
+      2.356049
+    ],
+    [
+      "OUTPUT",
+      1.953705
+    ]
+  ],
+  "compliant_segments": 8,
+  "total_segments": 8
+}

@@ -2,6 +2,11 @@
 """
 批量测试 models_local 中所有模型的分段推理性能
 基于 tools/run_resnet_seg_usbmon.sh 的逻辑，使用Python重写
+
+重要修改：
+- 替换了有问题的 analyze_usbmon_active.py URB配对算法
+- 使用 show_overlap_positions.py 的逐窗口事件解析方法
+- 提供真实准确的IN/OUT重叠计算，而非错误的"重叠=OUT时长"
 """
 
 import os
@@ -136,6 +141,100 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
         print(f"错误: {e.stderr}")
         return False
 
+def parse_overlap_analysis_output(output_text, total_invokes):
+    """解析 show_overlap_positions.py 的输出，提取真实的重叠和活跃时间数据"""
+    import re
+    
+    invoke_data = {}
+    current_invoke = None
+    
+    lines = output_text.strip().split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        
+        # 匹配 invoke 标题
+        invoke_match = re.match(r'=== Invoke #(\d+) ===', line)
+        if invoke_match:
+            current_invoke = int(invoke_match.group(1))
+            invoke_data[current_invoke] = {
+                'window_ms': 0.0,
+                'in_total_ms': 0.0,
+                'out_total_ms': 0.0,
+                'union_ms': 0.0,
+                'overlap_ms': 0.0
+            }
+            continue
+            
+        if current_invoke is None:
+            continue
+            
+        # 匹配窗口时长
+        window_match = re.match(r'窗口: ([\d.]+)ms', line)
+        if window_match:
+            invoke_data[current_invoke]['window_ms'] = float(window_match.group(1))
+            continue
+            
+        # 匹配总重叠
+        overlap_match = re.match(r'总重叠: ([\d.]+)ms', line)
+        if overlap_match:
+            invoke_data[current_invoke]['overlap_ms'] = float(overlap_match.group(1))
+            continue
+            
+        # 匹配IN/OUT总时长
+        io_match = re.match(r'IN总时长: ([\d.]+)ms, OUT总时长: ([\d.]+)ms', line)
+        if io_match:
+            invoke_data[current_invoke]['in_total_ms'] = float(io_match.group(1))
+            invoke_data[current_invoke]['out_total_ms'] = float(io_match.group(2))
+            continue
+            
+        # 匹配活跃联合
+        union_match = re.match(r'活跃联合: ([\d.]+)ms', line)
+        if union_match:
+            invoke_data[current_invoke]['union_ms'] = float(union_match.group(1))
+            continue
+    
+    return invoke_data
+
+def generate_active_analysis_from_overlap(overlap_data, spans):
+    """从逐窗口重叠分析数据生成兼容格式的活跃时间分析结果"""
+    per_invoke = []
+    
+    for i, span in enumerate(spans):
+        invoke_index = i
+        invoke_span_s = span['end'] - span['begin']
+        
+        # 从逐窗口分析数据中获取真实值（invoke编号从1开始，但数组索引从0开始）
+        real_invoke_num = i + 1
+        if real_invoke_num in overlap_data:
+            data = overlap_data[real_invoke_num]
+            in_active_span_s = data['in_total_ms'] / 1000.0
+            out_active_span_s = data['out_total_ms'] / 1000.0  
+            union_active_span_s = data['union_ms'] / 1000.0
+        else:
+            # 如果没有数据，使用保守估计（假设没有重叠）
+            in_active_span_s = 0.0
+            out_active_span_s = 0.0
+            union_active_span_s = 0.0
+        
+        per_invoke.append({
+            "invoke_index": invoke_index,
+            "invoke_span_s": invoke_span_s,
+            "bytes_in": 0,  # 字节数由其他脚本提供
+            "bytes_out": 0,
+            "in_active_span_s": in_active_span_s,
+            "out_active_span_s": out_active_span_s,
+            "union_active_span_s": union_active_span_s,
+            "in_events_count": 0,
+            "out_events_count": 0
+        })
+    
+    return {
+        "model_name": "corrected_overlap_analysis",
+        "total_invokes": len(spans),
+        "per_invoke": per_invoke
+    }
+
 def analyze_performance(outdir, model_name, seg_num):
     """分析性能数据并生成摘要"""
     invokes_file = os.path.join(outdir, "invokes.json")
@@ -167,18 +266,38 @@ def analyze_performance(outdir, model_name, seg_num):
         return None
     
     try:
-        # 运行活跃时间分析（严格窗口=0ms，仅用于纯invoke时间扣除，避免活跃>invoke导致纯时长为0）
-        active_script = "/home/10210/Desktop/OS/analyze_usbmon_active.py"
-        if os.path.exists(active_script):
+        # 读取推理时间数据（需要先读取以获取spans）
+        with open(invokes_file) as f:
+            invokes_data = json.load(f)
+        
+        spans = invokes_data.get('spans', [])
+        if not spans:
+            return None
+        
+        # 使用正确的逐窗口事件解析方法计算真实重叠（替换有问题的URB配对算法）
+        overlap_script = "/home/10210/Desktop/OS/show_overlap_positions.py"
+        if os.path.exists(overlap_script):
             try:
-                aenv0 = os.environ.copy(); aenv0['ACTIVE_EXPAND_MS'] = '0'
-                res0 = subprocess.run([
-                    "python3", active_script, usbmon_file, invokes_file, time_map_file
-                ], capture_output=True, text=True, check=True, env=aenv0)
+                # 使用逐窗口分析脚本计算真实重叠和活跃时间
+                res_overlap = subprocess.run([
+                    VENV_PY, overlap_script, usbmon_file, invokes_file, time_map_file,
+                    "--start", "2", "--end", "100"  # 跳过第1次cold run，分析2-100次
+                ], capture_output=True, text=True, check=True)
+                
+                # 解析逐窗口分析结果，提取真实的重叠和活跃时间数据
+                overlap_data = parse_overlap_analysis_output(res_overlap.stdout, len(spans))
+                
+                # 生成兼容格式的活跃时间分析结果
+                active_analysis_data = generate_active_analysis_from_overlap(overlap_data, spans)
                 with open(active_analysis_strict_file, 'w') as f:
-                    f.write(res0.stdout)
+                    json.dump(active_analysis_data, f, indent=2)
+                
+                print(f"✓ 使用逐窗口事件解析方法计算真实重叠（已修复URB配对算法问题）")
+                    
             except Exception as e:
-                print(f"警告：IO活跃时间分析失败: {e}")
+                print(f"警告：逐窗口重叠分析失败: {e}")
+                # 回退到简化的默认数据
+                active_analysis_data = {"model_name": f"{model_name}_seg{seg_num}", "per_invoke": []}
         
         # 使用简化解析器统计严格窗口的字节与速率（统一口径，single/chain 一致）
         simple_script = "/home/10210/Desktop/OS/analyze_usbmon_simple.py"
@@ -192,13 +311,7 @@ def analyze_performance(outdir, model_name, seg_num):
             except Exception as e:
                 print(f"警告：简化USB统计失败: {e}")
         
-        # 读取推理时间数据
-        with open(invokes_file) as f:
-            invokes_data = json.load(f)
-        
-        spans = invokes_data.get('spans', [])
-        if not spans:
-            return None
+        # spans已在上面读取，这里不需要重复读取
         
         # 计算invoke时间统计
         invoke_times = [span['end'] - span['begin'] for span in spans]
@@ -271,24 +384,34 @@ def analyze_performance(outdir, model_name, seg_num):
                 SYS_PY, corr_script, usbmon_file, invokes_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete"
             ], capture_output=True, text=True, check=True)
             txt = res_corr.stdout or ""
-            # 解析 warm 段统计
-            import re as _re
-            m_in = _re.search(r"IN:\s+总字节=(\d+),\s*平均=([\d.]+)", txt)
-            m_out = _re.search(r"OUT:\s+总字节=(\d+),\s*平均=([\d.]+)", txt)
-            if not (m_in and m_out):
-                # 备选：从“平均传输: IN=xxMB, OUT=yyMB”解析
-                m2 = _re.search(r"平均传输:\s*IN=([\d.]+)MB,\s*OUT=([\d.]+)MB", txt)
-                if m2:
-                    # 将 MiB 近似 MB 处理回字节用于兼容
-                    _in_mib = float(m2.group(1))
-                    _out_mib = float(m2.group(2))
-                    avg_in_bytes = _in_mib * 1024 * 1024.0
-                    avg_out_bytes = _out_mib * 1024 * 1024.0
-                else:
+            # 优先解析 JSON_SUMMARY
+            import re as _re, json as _json
+            mjson = _re.search(r"JSON_SUMMARY:\s*(\{.*\})", txt)
+            avg_in_bytes = avg_out_bytes = 0.0
+            if mjson:
+                try:
+                    js = _json.loads(mjson.group(1))
+                    avg_in_bytes = float(js.get('warm_avg_in_bytes', 0.0) or 0.0)
+                    avg_out_bytes = float(js.get('warm_avg_out_bytes', 0.0) or 0.0)
+                except Exception:
                     avg_in_bytes = avg_out_bytes = 0.0
-            else:
-                avg_in_bytes = float(m_in.group(2))
-                avg_out_bytes = float(m_out.group(2))
+            if avg_in_bytes == 0.0 or avg_out_bytes == 0.0:
+                # 兼容旧正则（支持千分位）
+                m_in = _re.search(r"IN:\s*总字节=([\d,]+),\s*平均=([\d.]+)", txt)
+                m_out = _re.search(r"OUT:\s*总字节=([\d,]+),\s*平均=([\d.]+)", txt)
+                if m_in and m_out:
+                    try:
+                        avg_in_bytes = float(m_in.group(2).replace(',', ''))
+                        avg_out_bytes = float(m_out.group(2).replace(',', ''))
+                    except Exception:
+                        pass
+                else:
+                    m2 = _re.search(r"平均传输:\s*IN=([\d.]+)MB,\s*OUT=([\d.]+)MB", txt)
+                    if m2:
+                        _in_mib = float(m2.group(1))
+                        _out_mib = float(m2.group(2))
+                        avg_in_bytes = _in_mib * 1024 * 1024.0
+                        avg_out_bytes = _out_mib * 1024 * 1024.0
             # 计算平均窗口时长（跳过第1次）
             warm_spans = [(s['end']-s['begin']) for s in spans[1:]] if len(spans)>1 else [(s['end']-s['begin']) for s in spans]
             avg_span_s = (sum(warm_spans)/len(warm_spans)) if warm_spans else 0.0

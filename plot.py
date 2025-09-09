@@ -276,6 +276,9 @@ def plot_segments(pre, infer_, post, prefix="mobilenet"):
 # ---------------------
 def main():
     model_path = "./model/mobilenet.tflite"
+    # model_path = "./model/mobilenet+.tflite"
+    # model_path = "./layered models/mn/tpu/mnv2_224_layer1_int8_edgetpu.tflite"
+    # model_path = "./layered models/mn/tpu/mnv2_224_layer1_tiny_int8_edgetpu.tflite"
     # model_path = "./layered models/tpu/conv2d_3x3_stride2_edgetpu.tflite"
     # model_path = "./edgetpu/test_data/inception_v1_224_quant_edgetpu.tflite"
     # model_path="./inception_v1_224_quant_cpu.tflite"

@@ -1,0 +1,44 @@
+model, seg, off_used, overlap_avg(ms), overlap_ratio_avg, IN_avg(ms), OUT_avg(ms), invoke_avg(ms), union_avg(ms)
+densenet201_8seg_uniform_local, seg1, off_used=0.359, overlap_avg=11.56, ratio_avg=0.34, IN=28.95, OUT=14.81, WIN=33.21, UNION=32.20
+densenet201_8seg_uniform_local, seg2, off_used=0.536, overlap_avg=16.88, ratio_avg=0.39, IN=37.44, OUT=19.75, WIN=41.43, UNION=40.31
+densenet201_8seg_uniform_local, seg3, off_used=0.533, overlap_avg=38.91, ratio_avg=0.79, IN=43.56, OUT=43.03, WIN=49.13, UNION=47.68
+densenet201_8seg_uniform_local, seg4, off_used=0.264, overlap_avg=6.90, ratio_avg=0.40, IN=10.34, OUT=11.64, WIN=17.06, UNION=15.08
+densenet201_8seg_uniform_local, seg5, off_used=0.472, overlap_avg=5.53, ratio_avg=0.31, IN=11.19, OUT=9.38, WIN=17.75, UNION=15.03
+densenet201_8seg_uniform_local, seg6, off_used=0.505, overlap_avg=4.84, ratio_avg=0.24, IN=14.69, OUT=8.18, WIN=19.86, UNION=18.03
+densenet201_8seg_uniform_local, seg7, off_used=0.441, overlap_avg=0.28, ratio_avg=0.03, IN=5.29, OUT=2.70, WIN=9.04, UNION=7.71
+densenet201_8seg_uniform_local, seg8, off_used=0.0, overlap_avg=0.18, ratio_avg=0.02, IN=4.83, OUT=1.57, WIN=7.23, UNION=6.22
+inceptionv3_8seg_uniform_local, seg1, off_used=0.0, overlap_avg=14.19, ratio_avg=0.33, IN=40.28, OUT=17.10, WIN=43.86, UNION=43.19
+inceptionv3_8seg_uniform_local, seg2, off_used=0.0, overlap_avg=7.19, ratio_avg=0.21, IN=34.23, OUT=7.19, WIN=34.64, UNION=34.23
+inceptionv3_8seg_uniform_local, seg3, off_used=0.0, overlap_avg=7.03, ratio_avg=0.21, IN=33.06, OUT=7.16, WIN=33.66, UNION=33.19
+inceptionv3_8seg_uniform_local, seg4, off_used=0.0, overlap_avg=7.73, ratio_avg=0.23, IN=33.11, OUT=8.02, WIN=33.99, UNION=33.40
+inceptionv3_8seg_uniform_local, seg5, off_used=0.0, overlap_avg=6.47, ratio_avg=0.39, IN=16.15, OUT=6.53, WIN=16.66, UNION=16.22
+inceptionv3_8seg_uniform_local, seg6, off_used=0.0, overlap_avg=15.31, ratio_avg=0.50, IN=30.13, OUT=15.31, WIN=30.48, UNION=30.13
+inceptionv3_8seg_uniform_local, seg7, off_used=0.799, overlap_avg=18.30, ratio_avg=0.54, IN=33.73, OUT=18.30, WIN=34.04, UNION=33.73
+inceptionv3_8seg_uniform_local, seg8, off_used=0.0, overlap_avg=-1.58, ratio_avg=-0.18, IN=3.51, OUT=1.90, WIN=8.55, UNION=6.99
+resnet101_8seg_uniform_local, seg1, off_used=0.0, overlap_avg=18.05, ratio_avg=0.42, IN=31.23, OUT=27.50, WIN=42.87, UNION=40.67
+resnet101_8seg_uniform_local, seg2, off_used=0.0, overlap_avg=17.40, ratio_avg=0.42, IN=41.30, OUT=17.40, WIN=41.75, UNION=41.30
+resnet101_8seg_uniform_local, seg3, off_used=0.0, overlap_avg=17.43, ratio_avg=0.42, IN=41.65, OUT=17.43, WIN=42.06, UNION=41.65
+resnet101_8seg_uniform_local, seg4, off_used=0.0, overlap_avg=17.45, ratio_avg=0.42, IN=41.79, OUT=17.45, WIN=42.17, UNION=41.79
+resnet101_8seg_uniform_local, seg5, off_used=0.0, overlap_avg=17.51, ratio_avg=0.41, IN=42.02, OUT=17.51, WIN=42.47, UNION=42.02
+resnet101_8seg_uniform_local, seg6, off_used=0.0, overlap_avg=2.78, ratio_avg=0.08, IN=16.38, OUT=16.06, WIN=30.89, UNION=29.66
+resnet101_8seg_uniform_local, seg7, off_used=3.01, overlap_avg=10.69, ratio_avg=0.41, IN=13.22, OUT=21.27, WIN=25.58, UNION=23.80
+resnet101_8seg_uniform_local, seg8, off_used=0.0, overlap_avg=8.57, ratio_avg=0.41, IN=10.43, OUT=18.42, WIN=21.04, UNION=20.27
+resnet50_8seg_uniform_local, seg1, off_used=0.0, overlap_avg=17.55, ratio_avg=0.48, IN=35.16, OUT=18.58, WIN=36.85, UNION=36.19
+resnet50_8seg_uniform_local, seg2, off_used=0.0, overlap_avg=11.20, ratio_avg=0.32, IN=35.41, OUT=11.20, WIN=35.82, UNION=35.41
+resnet50_8seg_uniform_local, seg3, off_used=0.0, overlap_avg=5.08, ratio_avg=0.18, IN=27.76, OUT=5.08, WIN=28.13, UNION=27.76
+resnet50_8seg_uniform_local, seg4, off_used=0.0, overlap_avg=5.08, ratio_avg=0.18, IN=27.84, OUT=5.08, WIN=28.26, UNION=27.84
+resnet50_8seg_uniform_local, seg5, off_used=0.0, overlap_avg=15.75, ratio_avg=0.50, IN=28.23, OUT=18.09, WIN=31.17, UNION=30.57
+resnet50_8seg_uniform_local, seg6, off_used=0.0, overlap_avg=13.38, ratio_avg=0.52, IN=23.49, OUT=14.99, WIN=25.72, UNION=25.10
+resnet50_8seg_uniform_local, seg7, off_used=0.0, overlap_avg=13.47, ratio_avg=0.51, IN=24.13, OUT=14.89, WIN=26.18, UNION=25.55
+resnet50_8seg_uniform_local, seg8, off_used=0.0, overlap_avg=0.03, ratio_avg=0.00, IN=7.92, OUT=0.11, WIN=8.47, UNION=8.00
+xception_8seg_uniform_local, seg1, off_used=None, overlap_avg=23.20, ratio_avg=0.43, IN=47.36, OUT=29.22, WIN=54.54, UNION=53.38
+xception_8seg_uniform_local, seg2, off_used=None, overlap_avg=11.97, ratio_avg=0.27, IN=43.79, OUT=11.97, WIN=44.28, UNION=43.79
+xception_8seg_uniform_local, seg3, off_used=None, overlap_avg=11.87, ratio_avg=0.27, IN=43.08, OUT=11.98, WIN=43.74, UNION=43.19
+xception_8seg_uniform_local, seg4, off_used=None, overlap_avg=11.98, ratio_avg=0.27, IN=44.10, OUT=11.98, WIN=44.47, UNION=44.10
+xception_8seg_uniform_local, seg5, off_used=None, overlap_avg=7.06, ratio_avg=0.19, IN=37.49, OUT=7.06, WIN=37.89, UNION=37.49
+xception_8seg_uniform_local, seg6, off_used=None, overlap_avg=12.47, ratio_avg=0.40, IN=31.06, OUT=12.47, WIN=31.43, UNION=31.06
+xception_8seg_uniform_local, seg7, off_used=None, overlap_avg=10.62, ratio_avg=0.32, IN=33.15, OUT=10.62, WIN=33.62, UNION=33.15
+xception_8seg_uniform_local, seg8, off_used=None, overlap_avg=-0.06, ratio_avg=-0.01, IN=7.80, OUT=0.00, WIN=8.92, UNION=7.87
+group offchip: n=9, overlap_avg_mean=12.65ms, median=10.69ms
+group onchip: n=23, overlap_avg_mean=10.32ms, median=11.20ms
+group unknown: n=8, overlap_avg_mean=11.14ms, median=11.92ms

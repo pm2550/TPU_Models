@@ -1,0 +1,14 @@
+{
+  "created_at": "2025-09-04T11:13:22.822985",
+  "k": 6,
+  "cut_names": [
+    "mixed3",
+    "mixed5",
+    "mixed6",
+    "mixed7",
+    "mixed8",
+    "mixed9",
+    "mixed10"
+  ],
+  "scheme": "prefix + merged tail"
+}

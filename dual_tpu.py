@@ -295,6 +295,7 @@ def print_summary(results_list):
 def main():
     # 配置
     model_path = "./model/test for cache/mn7.tflite"  # 使用mn6模型进行测试
+    # model_path = "./layered models/tpu/conv2d_3x3_stride2_edgetpu.tflite"
     num_runs = 1000
     tpu_configs = [
         {'tpu_id': 0, 'cpu_id': 1, 'delay': 0},    # TPU 0, CPU 1, 立即开始

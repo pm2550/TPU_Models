@@ -1,0 +1,54 @@
+{
+  "model_name": "ResNet101",
+  "segments": 8,
+  "size_range": [
+    1.0,
+    6.91
+  ],
+  "total_mb": 43.430267333984375,
+  "cut_points": [
+    "conv4_block3_add",
+    "conv4_block8_add",
+    "conv4_block13_add",
+    "conv4_block18_add",
+    "conv4_block23_add",
+    "conv5_block1_add",
+    "conv5_block2_out"
+  ],
+  "decisions": [
+    [
+      "conv4_block3_add",
+      5.15683
+    ],
+    [
+      "conv4_block8_add",
+      5.484955
+    ],
+    [
+      "conv4_block13_add",
+      5.484955
+    ],
+    [
+      "conv4_block18_add",
+      5.484955
+    ],
+    [
+      "conv4_block23_add",
+      5.484955
+    ],
+    [
+      "conv5_block1_add",
+      5.859955
+    ],
+    [
+      "conv5_block2_out",
+      4.332611
+    ],
+    [
+      "OUTPUT",
+      6.399017
+    ]
+  ],
+  "compliant_segments": 8,
+  "total_segments": 8
+}

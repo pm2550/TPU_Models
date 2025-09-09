@@ -1,0 +1,968 @@
+{
+  "densenet201_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            224,
+            224,
+            3
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 150528
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            704
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 137984
+        }
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            704
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 137984
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1280
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 250880
+        }
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1280
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 250880
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1664
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 326144
+        }
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1664
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 326144
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            896
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 43904
+        }
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            896
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 43904
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            1344
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 65856
+        }
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            1344
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 65856
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            1696
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 83104
+        }
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            1696
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 83104
+        },
+        "output": {
+          "shape": [
+            1,
+            1920
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 1920
+        }
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            1920
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 1920
+        },
+        "output": {
+          "shape": [
+            1,
+            1000
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 1000
+        }
+      }
+    }
+  },
+  "inceptionv3_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            299,
+            299,
+            3
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 268203
+        },
+        "output": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        }
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        },
+        "output": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        }
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        },
+        "output": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        }
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        },
+        "output": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        }
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            17,
+            17,
+            768
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 221952
+        },
+        "output": {
+          "shape": [
+            1,
+            8,
+            8,
+            1280
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 81920
+        }
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            8,
+            8,
+            1280
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 81920
+        },
+        "output": {
+          "shape": [
+            1,
+            8,
+            8,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 131072
+        }
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            8,
+            8,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 131072
+        },
+        "output": {
+          "shape": [
+            1,
+            8,
+            8,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 131072
+        }
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            8,
+            8,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 131072
+        },
+        "output": {
+          "shape": [
+            1,
+            1000
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 1000
+        }
+      }
+    }
+  },
+  "resnet101_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            224,
+            224,
+            3
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 150528
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        }
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        }
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        },
+        "output": {
+          "shape": [
+            1,
+            1000
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 1000
+        }
+      }
+    }
+  },
+  "resnet50_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            224,
+            224,
+            3
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 150528
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        }
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            14,
+            14,
+            1024
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 200704
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        }
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        }
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        },
+        "output": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        }
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            7,
+            7,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 100352
+        },
+        "output": {
+          "shape": [
+            1,
+            1000
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 1000
+        }
+      }
+    }
+  },
+  "xception_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            299,
+            299,
+            3
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 268203
+        },
+        "output": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        }
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        },
+        "output": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        }
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        },
+        "output": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        }
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        },
+        "output": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        }
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        },
+        "output": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        }
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            19,
+            19,
+            728
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 262808
+        },
+        "output": {
+          "shape": [
+            1,
+            10,
+            10,
+            1536
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 153600
+        }
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            10,
+            10,
+            1536
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 153600
+        },
+        "output": {
+          "shape": [
+            1,
+            10,
+            10,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 204800
+        }
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "backend": "pycoral",
+        "input": {
+          "shape": [
+            1,
+            10,
+            10,
+            2048
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 204800
+        },
+        "output": {
+          "shape": [
+            1,
+            1000
+          ],
+          "dtype": "<class 'numpy.int8'>",
+          "bytes": 1000
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "densenet201_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      }
+    }
+  },
+  "inceptionv3_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      }
+    }
+  },
+  "resnet101_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet101_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      }
+    }
+  },
+  "resnet50_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/resnet50_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      }
+    }
+  },
+  "xception_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg2": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg2_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg3": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg3_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg4": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg4_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg5": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg5_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg6": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg6_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg7": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg7_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      },
+      "seg8": {
+        "model_path": "/home/10210/Desktop/OS/models_local/public/xception_8seg_uniform_local/full_split_pipeline_local/tpu/seg8_int8_edgetpu.tflite",
+        "error": "Encountered unresolved custom op: edgetpu-custom-op.\nSee instructions: https://www.tensorflow.org/lite/guide/ops_custom Node number 0 (edgetpu-custom-op) failed to prepare."
+      }
+    }
+  }
+}

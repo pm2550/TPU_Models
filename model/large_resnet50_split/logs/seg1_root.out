@@ -1,0 +1,24 @@
+Edge TPU Compiler version 16.0.384591198
+Started a compilation timeout timer of 180 seconds.
+
+Model compiled successfully in 1157 ms.
+
+Input model: /workplace/models/large_resnet50_split/cpu/resnet50_seg1_int8.tflite
+Input size: 1.51MiB
+Output model: /workplace/models/large_resnet50_split/tpu/resnet50_seg1_int8_edgetpu.tflite
+Output size: 1.48MiB
+On-chip memory used for caching model parameters: 1.41MiB
+On-chip memory remaining for caching model parameters: 5.74MiB
+Off-chip memory used for streaming uncached model parameters: 0.00B
+Number of Edge TPU subgraphs: 1
+Total number of operations: 34
+Operation log: /workplace/models/large_resnet50_split/tpu/resnet50_seg1_int8_edgetpu.log
+
+Operator                       Count      Status
+
+PAD                            2          Mapped to Edge TPU
+CONV_2D                        24         Mapped to Edge TPU
+ADD                            7          Mapped to Edge TPU
+MAX_POOL_2D                    1          Mapped to Edge TPU
+Compilation child process completed within timeout period.
+Compilation succeeded! 

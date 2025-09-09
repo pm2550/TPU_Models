@@ -1,0 +1,58 @@
+{
+  "full_split": {
+    "dir": "/mnt/c/Users/pm/Desktop/TPU/GNN_new/GNN/models_local/public/inceptionv3_8seg_uniform_local/full_split_pipeline_local",
+    "segments": 8,
+    "size_ok": true,
+    "tpu_ok": true
+  },
+  "combos": {
+    "K2": {
+      "exists": true,
+      "num_parts": 2,
+      "chain": {
+        "num_samples": 4,
+        "avg_abs_value": -116.12775039672852
+      }
+    },
+    "K3": {
+      "exists": true,
+      "num_parts": 3,
+      "chain": {
+        "num_samples": 4,
+        "avg_abs_value": -112.72325134277344
+      }
+    },
+    "K4": {
+      "exists": true,
+      "num_parts": 4,
+      "chain": {
+        "num_samples": 4,
+        "avg_abs_value": -114.86100006103516
+      }
+    },
+    "K5": {
+      "exists": true,
+      "num_parts": 5,
+      "chain": {
+        "num_samples": 4,
+        "avg_abs_value": -100.55500030517578
+      }
+    },
+    "K6": {
+      "exists": true,
+      "num_parts": 6,
+      "chain": {
+        "num_samples": 4,
+        "avg_abs_value": -113.52174949645996
+      }
+    },
+    "K7": {
+      "exists": true,
+      "num_parts": 7,
+      "chain": {
+        "num_samples": 4,
+        "avg_abs_value": -106.7712516784668
+      }
+    }
+  }
+}
