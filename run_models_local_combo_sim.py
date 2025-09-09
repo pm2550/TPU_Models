@@ -109,7 +109,7 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
             'count': len(arr),
         }
 
-    # IO 统计：使用权威口径 correct_per_invoke_stats（扩窗10ms、bulk_complete），输出 MiB 与窗口平均速率
+    # IO 统计（全局最大重叠分配）：一次性处理整段窗口，避免跨段重复
     overall_avg = {
         'span_s': 0.0,
         'avg_bytes_in_per_invoke': 0.0,
@@ -118,12 +118,29 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
         'MiBps_out': 0.0,
     }
     try:
+        # 为 combo 的“全局分配”改造：在 combo 根目录准备 merged_invokes.json（包含所有段窗口及 seg 索引）
+        merged_file = os.path.join(combo_root, "merged_invokes.json")
+        if not os.path.exists(merged_file):
+            # 合并 seg1..seg8 的 invokes.json
+            merged = {'spans': []}
+            for s in range(1, 9):
+                seg_inv = os.path.join(combo_root, f"seg{s}", "invokes.json")
+                if not os.path.exists(seg_inv):
+                    continue
+                J = json.load(open(seg_inv))
+                for sp in (J.get('spans') or []):
+                    merged['spans'].append({'begin': sp['begin'], 'end': sp['end'], 'seg': s})
+            # 排序保证时间顺序
+            merged['spans'].sort(key=lambda x: x['begin'])
+            json.dump(merged, open(merged_file, 'w'))
+
+        # 运行权威统计，使用 overlap + 最大重叠分配（脚本内实现），一次性覆盖所有窗口
         if not os.path.exists(CORRECT_PER_INVOKE):
             raise FileNotFoundError(CORRECT_PER_INVOKE)
-        res_corr = subprocess.run([SYS_PY, CORRECT_PER_INVOKE, usbmon_file, invokes_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete"], capture_output=True, text=True, check=True)
+        res_corr = subprocess.run([VENV_PY, CORRECT_PER_INVOKE, usbmon_file, merged_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete", "--include", "overlap"], capture_output=True, text=True, check=True)
         txt = res_corr.stdout or ""
         import re as _re, json as _json
-        # 优先解析 JSON_SUMMARY，避免正则误匹配与千分位问题
+        # 解析 JSON_SUMMARY（全局平均）
         avg_in_bytes = avg_out_bytes = 0.0
         mjson = _re.search(r"JSON_SUMMARY:\s*(\{.*\})", txt)
         if mjson:
@@ -133,16 +150,7 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
                 avg_out_bytes = float(js.get('warm_avg_out_bytes', 0.0) or 0.0)
             except Exception:
                 avg_in_bytes = avg_out_bytes = 0.0
-        if avg_in_bytes == 0.0 or avg_out_bytes == 0.0:
-            # 兼容旧输出：允许总字节带千分位
-            m_in = _re.search(r"IN:\s*总字节=([\d,]+),\s*平均=([\d.]+)", txt)
-            m_out = _re.search(r"OUT:\s*总字节=([\d,]+),\s*平均=([\d.]+)", txt)
-            if m_in and m_out:
-                try:
-                    avg_in_bytes = float(m_in.group(2).replace(',', ''))
-                    avg_out_bytes = float(m_out.group(2).replace(',', ''))
-                except Exception:
-                    pass
+        # 用本段的窗口均值换算速率（避免用全局 span）
         avg_span_s = (sum(invoke_ms)/len(invoke_ms)/1000.0) if invoke_ms else 0.0
         to_MiB = lambda b: (b/(1024.0*1024.0))
         overall_avg = {

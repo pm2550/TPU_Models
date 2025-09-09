@@ -557,13 +557,18 @@ def analyze_performance(outdir, model_name, seg_num):
         # 按活跃窗口计速（严格，MiB/s）：以活跃窗口作为分母
         try:
             _avg_active_ms = float(io_active_union_avg_strict.get('avg_active_ms', 0) or 0)
+            _avg_in_active_ms = float(io_active_union_avg_strict.get('avg_in_active_ms', 0) or 0)
+            _avg_out_active_ms = float(io_active_union_avg_strict.get('avg_out_active_ms', 0) or 0)
             _avg_active_s = _avg_active_ms / 1000.0 if _avg_active_ms else 0.0
+            _avg_in_active_s = _avg_in_active_ms / 1000.0 if _avg_in_active_ms else 0.0
+            _avg_out_active_s = _avg_out_active_ms / 1000.0 if _avg_out_active_ms else 0.0
             _avg_in_bytes = float(io_active_union_avg_strict.get('avg_bytes_in_per_invoke', 0) or 0)
             _avg_out_bytes = float(io_active_union_avg_strict.get('avg_bytes_out_per_invoke', 0) or 0)
             _in_mib = _avg_in_bytes / (1024.0 * 1024.0)
             _out_mib = _avg_out_bytes / (1024.0 * 1024.0)
-            _in_mibps_act = (_in_mib / _avg_active_s) if _avg_active_s > 0 else 0.0
-            _out_mibps_act = (_out_mib / _avg_active_s) if _avg_active_s > 0 else 0.0
+            # 按方向以各自活跃时长为分母；UNION 以联合活跃时长为分母
+            _in_mibps_act = (_in_mib / _avg_in_active_s) if _avg_in_active_s > 0 else 0.0
+            _out_mibps_act = (_out_mib / _avg_out_active_s) if _avg_out_active_s > 0 else 0.0
             _union_mibps_act = ((_in_mib + _out_mib) / _avg_active_s) if _avg_active_s > 0 else 0.0
             print(
                 f"按活跃窗口计速(严格): IN {_in_mibps_act:.2f}MiB/s, OUT {_out_mibps_act:.2f}MiB/s, UNION {_union_mibps_act:.2f}MiB/s"
