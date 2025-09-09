@@ -27,7 +27,7 @@ CHAIN_CAPTURE_SCRIPT = "/home/10210/Desktop/OS/run_usbmon_chain_offline.sh"
 SIM_CHAIN_CAPTURE_SCRIPT = "/home/10210/Desktop/OS/run_usbmon_chain_offline_sim.sh"
 
 # 是否使用链式模式（seg1..seg8 串联 set→invoke→get）
-USE_CHAIN_MODE = True
+USE_CHAIN_MODE = False
 USE_SIM_CHAIN = False  # 是否使用模拟链式（K 组合用单次/不预热/循环100）
 
 def check_dependencies():
@@ -281,7 +281,7 @@ def analyze_performance(outdir, model_name, seg_num):
                 # 使用逐窗口分析脚本计算真实重叠和活跃时间
                 res_overlap = subprocess.run([
                     VENV_PY, overlap_script, usbmon_file, invokes_file, time_map_file,
-                    "--start", "2", "--end", "100"  # 跳过第1次cold run，分析2-100次
+                    "--start", "1", "--end", "100"  # 覆盖第1次开始（已在采集侧预热）
                 ], capture_output=True, text=True, check=True)
                 
                 # 解析逐窗口分析结果，提取真实的重叠和活跃时间数据
@@ -337,14 +337,13 @@ def analyze_performance(outdir, model_name, seg_num):
         # 跳过第一次，使用严格窗口计算纯invoke（并限制活跃IO不超过invoke时长）
         try:
             per_invoke_strict = (active_analysis_strict or {}).get('per_invoke', [])
-            if len(per_invoke_strict) > 1:
-                warm = per_invoke_strict[1:]
+            if per_invoke_strict:
                 pure_invoke_times_ms = []
-                for i, inv in enumerate(warm):
-                    if i + 1 < len(invoke_times_ms):
-                        invoke_time_ms = invoke_times_ms[i + 1]
+                for i, inv in enumerate(per_invoke_strict):
+                    if i < len(invoke_times_ms):
+                        invoke_time_ms = invoke_times_ms[i]
                         io_ms = (inv.get('union_active_span_s', 0.0) or 0.0) * 1000.0
-                        io_ms = min(io_ms, invoke_time_ms)  # 不超过invoke窗口
+                        io_ms = min(io_ms, invoke_time_ms)
                         pure_invoke_times_ms.append(max(0.0, invoke_time_ms - io_ms))
                 pure_io_times_ms = pure_invoke_times_ms
         except Exception as e:
@@ -362,7 +361,9 @@ def analyze_performance(outdir, model_name, seg_num):
                 'mean_ms': statistics.mean(invoke_times_ms),
                 'median_ms': statistics.median(invoke_times_ms),
                 'stdev_ms': statistics.stdev(invoke_times_ms) if len(invoke_times_ms) > 1 else 0.0,
-                'all_times_ms': invoke_times_ms
+                'all_times_ms': invoke_times_ms,
+                # 保存一次样本：优先第2次（第一帧warm），否则第1次
+                'saved_sample_ms': (invoke_times_ms[1] if len(invoke_times_ms) > 1 else (invoke_times_ms[0] if invoke_times_ms else 0.0))
             },
             'pure_invoke_times': {
                 'min_ms': min(pure_io_times_ms) if pure_io_times_ms else 0,
@@ -370,7 +371,8 @@ def analyze_performance(outdir, model_name, seg_num):
                 'mean_ms': statistics.mean(pure_io_times_ms) if pure_io_times_ms else 0,
                 'median_ms': statistics.median(pure_io_times_ms) if pure_io_times_ms else 0,
                 'stdev_ms': statistics.stdev(pure_io_times_ms) if len(pure_io_times_ms) > 1 else 0.0,
-                'all_times_ms': pure_io_times_ms
+                'all_times_ms': pure_io_times_ms,
+                'saved_sample_ms': (pure_io_times_ms[0] if pure_io_times_ms else 0.0)
             }
         }
         
@@ -413,13 +415,13 @@ def analyze_performance(outdir, model_name, seg_num):
                         avg_in_bytes = _in_mib * 1024 * 1024.0
                         avg_out_bytes = _out_mib * 1024 * 1024.0
             # 计算平均窗口时长（跳过第1次）
-            warm_spans = [(s['end']-s['begin']) for s in spans[1:]] if len(spans)>1 else [(s['end']-s['begin']) for s in spans]
-            avg_span_s = (sum(warm_spans)/len(warm_spans)) if warm_spans else 0.0
+            all_spans = [(s['end']-s['begin']) for s in spans]
+            avg_span_s = (sum(all_spans)/len(all_spans)) if all_spans else 0.0
             to_MiB = lambda b: (b / (1024.0 * 1024.0))
             MiBps_in = (to_MiB(avg_in_bytes) / avg_span_s) if avg_span_s>0 else 0.0
             MiBps_out = (to_MiB(avg_out_bytes) / avg_span_s) if avg_span_s>0 else 0.0
             # 构造 overall，用平均×次数近似总量
-            total_windows = max(1, len(warm_spans))
+            total_windows = max(1, len(all_spans))
             total_in_bytes = int(avg_in_bytes * total_windows)
             total_out_bytes = int(avg_out_bytes * total_windows)
             io_stats = {
@@ -491,10 +493,8 @@ def analyze_performance(outdir, model_name, seg_num):
             try:
                 act = active_analysis_strict.get('per_invoke', [])
                 if act:
-                    # 跳过首个
                     import statistics as _st
-                    act_warm = act[1:] if len(act)>1 else act
-                    active_ms = [ (x.get('union_active_span_s', 0.0) or 0.0) * 1000.0 for x in act_warm ]
+                    active_ms = [ (x.get('union_active_span_s', 0.0) or 0.0) * 1000.0 for x in act ]
                     avg_active_ms = _st.mean(active_ms) if active_ms else 0.0
                     avg_in_b = _avg_in_bytes_for_active
                     avg_out_b = _avg_out_bytes_for_active
@@ -507,8 +507,8 @@ def analyze_performance(outdir, model_name, seg_num):
                         in_mib_per_ms = out_mib_per_ms = 0.0
                     active_union_avg_strict = {
                         'avg_active_ms': avg_active_ms,
-                        'avg_in_active_ms': _st.mean([ (x.get('in_active_span_s', 0.0) or 0.0) * 1000.0 for x in act_warm ]) if act_warm else 0.0,
-                        'avg_out_active_ms': _st.mean([ (x.get('out_active_span_s', 0.0) or 0.0) * 1000.0 for x in act_warm ]) if act_warm else 0.0,
+                        'avg_in_active_ms': _st.mean([ (x.get('in_active_span_s', 0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
+                        'avg_out_active_ms': _st.mean([ (x.get('out_active_span_s', 0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
                         'avg_bytes_in_per_invoke': avg_in_b,
                         'avg_bytes_out_per_invoke': avg_out_b,
                         'in_MiB_per_ms': in_mib_per_ms,

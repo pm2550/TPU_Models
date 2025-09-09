@@ -9,6 +9,106 @@ import argparse
 import re
 from collections import defaultdict
 
+def parse_usbmon_records(usbmon_file):
+    """解析 usbmon.txt 行，返回事件记录用于 URB S/C 配对。
+    字段：urb_id, ts, ev(S/C), dir(Bi/Bo/Ci/Co), dev, ep, len
+    """
+    import re
+    recs = []
+    with open(usbmon_file, 'r', errors='ignore') as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            # 兼容两种列位：TIMESTAMP URB_ID ... 或 URB_ID TIMESTAMP ...
+            ts = None; urb_id=None; ev=None
+            try:
+                # URB_ID TIMESTAMP ...
+                urb_id = parts[0]
+                ts = float(parts[1])
+                ev = parts[2]
+            except Exception:
+                try:
+                    ts = float(parts[0])
+                    urb_id = parts[1]
+                    ev = parts[2] if len(parts)>2 else 'S'
+                except Exception:
+                    continue
+            if ts is not None and ts > 1e6:
+                ts = ts/1e6
+            # 查找方向/设备/端点
+            direction = None; dev_num=None; ep_num=None; dir_idx=None
+            for i, token in enumerate(parts):
+                if re.match(r'^[BC][io]:\d+:\d+:\d+', token):
+                    direction = token[:2]
+                    try:
+                        m = re.match(r'^[BC][io]:(\d+):(\d+):(\d+)', token)
+                        if m:
+                            dev_num = int(m.group(2)); ep_num = int(m.group(3))
+                    except Exception:
+                        pass
+                    dir_idx = i
+                    break
+            if not direction:
+                continue
+            # 字节数：优先 len=，否则取方向字段后两列
+            nb = 0
+            mlen = re.search(r'len=(\d+)', line)
+            if mlen:
+                try:
+                    nb = int(mlen.group(1))
+                except Exception:
+                    nb = 0
+            elif dir_idx is not None and len(parts) > dir_idx + 2:
+                try:
+                    nb = int(re.sub(r'[^\d]', '', parts[dir_idx+2]) or '0')
+                except Exception:
+                    nb = 0
+            recs.append({'urb_id': urb_id, 'ts': ts, 'ev': ev, 'dir': direction,
+                         'dev': dev_num, 'ep': ep_num, 'len': nb})
+    return recs
+
+def build_urb_pairs(records):
+    """按 urb_id 将 S/C 事件配对，返回包含提交/完成时间与方向等信息的列表。"""
+    submit = {}
+    pairs = []
+    for r in records:
+        if r['ev'] == 'S':
+            submit[r['urb_id']] = r
+        elif r['ev'] == 'C':
+            s = submit.pop(r['urb_id'], None)
+            if not s:
+                continue
+            d = s['dir']
+            if d not in ('Bi','Bo'):
+                continue
+            dev = s['dev'] if s['dev'] is not None else r['dev']
+            ep = s['ep'] if s['ep'] is not None else r['ep']
+            length = s['len'] if s['len'] is not None else 0
+            t0 = s['ts']; t1 = r['ts']
+            if t1 < t0:
+                continue
+            dur = t1 - t0
+            # 过滤异常小长包
+            if length < 64 and dur > 0.002:
+                continue
+            pairs.append({'dir': d, 'dev': dev, 'ep': ep, 'len': length,
+                          'ts_submit': t0, 'ts_complete': t1, 'duration': dur})
+    return pairs
+
+def union_intervals(intervals):
+    if not intervals:
+        return []
+    intervals = sorted(intervals, key=lambda x: x[0])
+    merged = [intervals[0]]
+    for s,e in intervals[1:]:
+        ls, le = merged[-1]
+        if s <= le:
+            merged[-1] = (ls, max(le, e))
+        else:
+            merged.append((s,e))
+    return merged
+
 def parse_usbmon_events(usbmon_file, dev_filter=None):
     """解析usbmon文件，返回所有USB事件的详细信息"""
     
@@ -89,26 +189,20 @@ def parse_usbmon_events(usbmon_file, dev_filter=None):
     
     return events
 
-def find_active_intervals(events, window_start, window_end, direction):
-    """找到指定方向在窗口内的活跃区间（使用原始方法：首次到末次传输的总跨度）"""
-    
-    # 筛选窗口内的指定方向事件
-    window_events = [e for e in events 
-                    if window_start <= e['timestamp'] <= window_end 
-                    and e['direction'] == direction]
-    
-    if not window_events:
-        return []
-    
-    # 按时间排序
-    window_events.sort(key=lambda x: x['timestamp'])
-    
-    # 使用原始方法：活跃时间 = 第一个到最后一个传输的总跨度
-    first_time = window_events[0]['timestamp']
-    last_time = window_events[-1]['timestamp']
-    
-    # 返回单个连续区间（从首次到末次传输）
-    return [(first_time, last_time)]
+def find_active_intervals_from_pairs(pairs, window_start, window_end, direction, *, allow_dev=None, allow_ep=None):
+    """基于 URB S/C 配对，在窗口内找指定方向的活跃区间（并集）。"""
+    ints = []
+    for p in pairs:
+        if p['dir'] != direction:
+            continue
+        if allow_dev is not None and p['dev'] is not None and p['dev'] != allow_dev:
+            continue
+        if allow_ep is not None and p['ep'] is not None and p['ep'] != allow_ep:
+            continue
+        t0 = p['ts_submit']; t1 = p['ts_complete']
+        if t0 >= window_start and t1 <= window_end:
+            ints.append((t0, t1))
+    return union_intervals(ints)
 
 def find_overlaps(in_intervals, out_intervals):
     """找到IN和OUT区间的重叠部分"""
@@ -157,21 +251,34 @@ def main():
     else:
         spans = invokes_data
     
-    # 解析所有USB事件
-    print("解析USB事件...")
-    # 自动探测设备号：统计 Bi/Bo 的字节量占比最高的设备
+    # 解析并配对 URB（更精确的活跃区间）
+    print("解析USB事件并配对URB...")
+    recs = parse_usbmon_records(usbmon_file)
+    pairs = build_urb_pairs(recs)
+    # 自动探测设备与端点
     auto_dev = args.dev
+    ep_in = None; ep_out = None
     if auto_dev is None:
-        tmp_events = parse_usbmon_events(usbmon_file, dev_filter=None)
         bytes_by_dev = {}
-        for e in tmp_events:
-            if e['dev'] is not None:
-                bytes_by_dev[e['dev']] = bytes_by_dev.get(e['dev'], 0) + e['bytes']
+        for p in pairs:
+            if p['dir'] in ('Bi','Bo') and p['dev'] is not None:
+                bytes_by_dev[p['dev']] = bytes_by_dev.get(p['dev'],0) + (p['len'] or 0)
         if bytes_by_dev:
-            auto_dev = max(bytes_by_dev.items(), key=lambda x: x[1])[0]
-    all_events = parse_usbmon_events(usbmon_file, dev_filter=auto_dev)
-    print(f"找到 {len(all_events)} 个有效USB事件 (DEV={auto_dev})")
-    print(f"找到 {len(all_events)} 个有效USB事件")
+            auto_dev = max(bytes_by_dev.items(), key=lambda x:x[1])[0]
+    # 端点自动选择
+    bytes_by_ep_in = {}; bytes_by_ep_out = {}
+    for p in pairs:
+        if p['dev'] != auto_dev:
+            continue
+        if p['dir']=='Bi' and p['ep'] is not None:
+            bytes_by_ep_in[p['ep']] = bytes_by_ep_in.get(p['ep'],0)+(p['len'] or 0)
+        if p['dir']=='Bo' and p['ep'] is not None:
+            bytes_by_ep_out[p['ep']] = bytes_by_ep_out.get(p['ep'],0)+(p['len'] or 0)
+    if bytes_by_ep_in:
+        ep_in = max(bytes_by_ep_in.items(), key=lambda x:x[1])[0]
+    if bytes_by_ep_out:
+        ep_out = max(bytes_by_ep_out.items(), key=lambda x:x[1])[0]
+    print(f"使用过滤: DEV={auto_dev}, EP_IN={ep_in}, EP_OUT={ep_out}")
     
     # 计算要分析的范围（将用户输入范围裁剪到有效边界内）
     total_invokes = len(spans)
@@ -207,9 +314,9 @@ def main():
         print(f"\n=== Invoke #{i+1} ===")
         print(f"窗口: {window_duration:.2f}ms")
         
-        # 找到IN和OUT活跃区间
-        in_intervals = find_active_intervals(all_events, window_start, window_end, 'Bi')
-        out_intervals = find_active_intervals(all_events, window_start, window_end, 'Bo')
+        # 找到IN和OUT活跃区间（基于 URB 对）
+        in_intervals = find_active_intervals_from_pairs(pairs, window_start, window_end, 'Bi', allow_dev=auto_dev, allow_ep=ep_in)
+        out_intervals = find_active_intervals_from_pairs(pairs, window_start, window_end, 'Bo', allow_dev=auto_dev, allow_ep=ep_out)
         
         # 转换为相对时间(ms)
         in_intervals_ms = [((start - window_start) * 1000, (end - window_start) * 1000) 
