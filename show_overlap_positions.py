@@ -190,7 +190,9 @@ def parse_usbmon_events(usbmon_file, dev_filter=None):
     return events
 
 def find_active_intervals_from_pairs(pairs, window_start, window_end, direction, *, allow_dev=None, allow_ep=None):
-    """基于 URB S/C 配对，在窗口内找指定方向的活跃区间（并集）。"""
+    """基于 URB S/C 配对，在窗口内找指定方向的活跃区间（并集）。
+    包含规则：任意交叠（overlap），并将区间剪裁到窗口边界，避免因跨窗URB导致0活跃。
+    """
     ints = []
     for p in pairs:
         if p['dir'] != direction:
@@ -200,8 +202,12 @@ def find_active_intervals_from_pairs(pairs, window_start, window_end, direction,
         if allow_ep is not None and p['ep'] is not None and p['ep'] != allow_ep:
             continue
         t0 = p['ts_submit']; t1 = p['ts_complete']
-        if t0 >= window_start and t1 <= window_end:
-            ints.append((t0, t1))
+        # 任意交叠
+        if t1 >= window_start and t0 <= window_end:
+            s = max(t0, window_start)
+            e = min(t1, window_end)
+            if e > s:
+                ints.append((s, e))
     return union_intervals(ints)
 
 def find_overlaps(in_intervals, out_intervals):

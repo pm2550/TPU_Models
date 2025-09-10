@@ -248,15 +248,20 @@ def main():
     pairs = build_urb_pairs(records)
     print(f"已配对 URB: {len(pairs)}")
 
-    # 自动探测设备号/端点号（若未指定），选择字节占比最高的DEV/EP（Bi/Bo各自独立）
+    # 自动探测将分两步：
+    # 1) 粗探测（全文件），便于观察
+    # 2) 若后续统计为0，则基于“与窗口有交叠的URB”重探测
     auto_dev = args.dev
     auto_ep_in = args.ep_in
     auto_ep_out = args.ep_out
-    if args.dev is None or args.ep_in is None or args.ep_out is None:
+    def autodetect_from_records(recs):
+        nonlocal auto_dev, auto_ep_in, auto_ep_out
+        if args.dev is not None and args.ep_in is not None and args.ep_out is not None:
+            return
         bytes_by_dev = {}
         bytes_by_ep_in = {}
         bytes_by_ep_out = {}
-        for p in pairs:
+        for p in recs:
             d = p['dir']
             if d not in ('Bi', 'Bo'):
                 continue
@@ -273,11 +278,12 @@ def main():
             auto_ep_in = max(bytes_by_ep_in.items(), key=lambda x: x[1])[0]
         if auto_ep_out is None and bytes_by_ep_out:
             auto_ep_out = max(bytes_by_ep_out.items(), key=lambda x: x[1])[0]
+    autodetect_from_records(pairs)
     # 环境变量覆盖（若提供）
     env_dev = os.environ.get('USBMON_DEV')
     if env_dev and env_dev.isdigit():
         auto_dev = int(env_dev)
-    print(f"使用过滤: DEV={auto_dev}, EP_IN={auto_ep_in}, EP_OUT={auto_ep_out}")
+    print(f"使用过滤(初探): DEV={auto_dev}, EP_IN={auto_ep_in}, EP_OUT={auto_ep_out}")
     
     # 若使用“任意交叠”，采用“最大重叠分配”逻辑，避免跨窗重复与零计数
     results = []
@@ -297,6 +303,19 @@ def main():
                             'MBps_in':0.0,'MBps_out':0.0,'in_active_s':0.0,'out_active_s':0.0})
         in_times = [[] for _ in iv]
         out_times = [[] for _ in iv]
+        # 若仍未指定 dev/ep，则在“与任一窗口有交叠的URB集合”上再探测一次，避免被无关设备干扰
+        if auto_dev is None or auto_ep_in is None or auto_ep_out is None:
+            overlapped_pairs = []
+            for p in pairs:
+                if p['dir'] not in ('Bi','Bo'):
+                    continue
+                t0 = p['ts_submit']; t1 = p['ts_complete']
+                for (b0,e0) in win_bounds:
+                    if (t1 >= b0 and t0 <= e0):
+                        overlapped_pairs.append(p)
+                        break
+            autodetect_from_records(overlapped_pairs)
+            print(f"使用过滤(窗内重探): DEV={auto_dev}, EP_IN={auto_ep_in}, EP_OUT={auto_ep_out}")
         # 过滤目标对（DEV/EP）
         def allow(p):
             if p['dir'] not in ('Bi','Bo'):
@@ -338,6 +357,36 @@ def main():
             r['in_active_s'] = (max(in_times[i]) - min(in_times[i])) if len(in_times[i])>1 else 0.0
             r['out_active_s'] = (max(out_times[i]) - min(out_times[i])) if len(out_times[i])>1 else 0.0
             r['invoke'] = i
+        # 若统计仍为0，最后兜底：不使用 dev/ep 过滤（仅 Bi/Bo），避免被错误过滤清空
+        if sum(r['bytes_in']+r['bytes_out'] for r in results) == 0:
+            print("注意: 窗口统计为0，启用无dev/ep过滤兜底")
+            results = [{'span_s': r['span_s'],'Bi':0,'Bo':0,'Ci':0,'Co':0,'bytes_in':0,'bytes_out':0,
+                        'MBps_in':r['MBps_in'],'MBps_out':r['MBps_out'],'in_active_s':0.0,'out_active_s':0.0}
+                       for r in results]
+            in_times = [[] for _ in iv]
+            out_times = [[] for _ in iv]
+            for p in pairs:
+                if p['dir'] not in ('Bi','Bo'):
+                    continue
+                t0 = p['ts_submit']; t1 = p['ts_complete']
+                if p['len'] < 64 and p['duration'] > 0.002:
+                    continue
+                best_i = -1; best_ov = 0.0
+                for i,(b0,e0) in enumerate(win_bounds):
+                    ov = max(0.0, min(e0, t1) - max(b0, t0))
+                    if ov > best_ov:
+                        best_ov = ov; best_i = i
+                if best_i < 0 or best_ov <= 0:
+                    continue
+                r = results[best_i]
+                if p['dir']=='Bi':
+                    r['Bi'] += 1; r['bytes_in'] += (p['len'] or 0); in_times[best_i].append(t1)
+                else:
+                    r['Bo'] += 1; r['bytes_out'] += (p['len'] or 0); out_times[best_i].append(t1)
+            # 活跃时间
+            for i in range(len(results)):
+                results[i]['in_active_s'] = (max(in_times[i]) - min(in_times[i])) if len(in_times[i])>1 else 0.0
+                results[i]['out_active_s'] = (max(out_times[i]) - min(out_times[i])) if len(out_times[i])>1 else 0.0
     else:
         # 原有逐窗口统计（全包含）
         for i, win in enumerate(iv):

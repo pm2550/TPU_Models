@@ -93,10 +93,15 @@ elif dtype_name == 'int8':
 else:
     x = np.random.random_sample(inp['shape']).astype(np.float32)
 
-for _ in range(50):
+# 环境变量控制预热与记录次数（默认预热10次，记录100次）
+import os
+WARMUP = int(os.environ.get('WARMUP', '10'))
+COUNT = int(os.environ.get('COUNT', '100'))
+
+for _ in range(WARMUP):
     it.set_tensor(inp['index'], x); it.invoke()
 spans=[]
-for i in range(10):
+for i in range(COUNT):
     it.set_tensor(inp['index'], x)
     t0=t.time(); it.invoke(); t1=t.time()
     spans.append({'begin': t0, 'end': t1})

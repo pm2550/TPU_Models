@@ -67,7 +67,13 @@ def main():
             if not os.path.isdir(kdir):
                 continue
             # 收集所有以 seg 开头的阶段目录（支持 seg2to8 等）
-            seg_dirs = [d for d in sorted(os.listdir(kdir)) if d.startswith('seg') and os.path.isdir(os.path.join(kdir, d))]
+            seg_dirs = [d for d in os.listdir(kdir) if d.startswith('seg') and os.path.isdir(os.path.join(kdir, d))]
+            # 依据起始段号排序
+            import re as _re
+            def seg_key(lbl: str):
+                m = _re.match(r"seg(\d+)", lbl)
+                return int(m.group(1)) if m else 999
+            seg_dirs = sorted(seg_dirs, key=seg_key)
             if not seg_dirs:
                 continue
             seg_to_invoke: Dict[str, List[float]] = {}

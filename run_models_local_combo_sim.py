@@ -63,34 +63,25 @@ def run_real_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     # 真实链式（combo）：默认不预热、每段1次；若外部已提供 WARMUP/COUNT，则尊重外部
     env.setdefault('WARMUP', '0')
     env.setdefault('COUNT', '1')
+    env.setdefault('STOP_ON_COUNT', '1')
     # 默认持续 20s，可通过 CAP_DUR 覆盖
     dur = os.environ.get('CAP_DUR', '20')
     cmd = [CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
-def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num: int):
+def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_label: str):
     usbmon_file = os.path.join(combo_root, "usbmon.txt")
     time_map_file = os.path.join(combo_root, "time_map.json")
     invokes_file = os.path.join(seg_dir, "invokes.json")
-    io_file = os.path.join(seg_dir, "io_split_bt.json")
     active_file = os.path.join(seg_dir, "active_analysis.json")
     summary_file = os.path.join(seg_dir, "performance_summary.json")
 
-    if not (os.path.exists(usbmon_file) and os.path.exists(time_map_file) and os.path.exists(invokes_file) and os.path.exists(io_file)):
+    # 仅要求 usbmon/time_map/invokes 存在即可分析
+    if not (os.path.exists(usbmon_file) and os.path.exists(time_map_file) and os.path.exists(invokes_file)):
         return None
 
-    # 活跃IO分析：统一改用 show_overlap_positions.py（严格窗口、事件精配）
-    SHOW_OVERLAP = "/home/10210/Desktop/OS/show_overlap_positions.py"
-    try:
-        res = subprocess.run([VENV_PY, SHOW_OVERLAP, usbmon_file, invokes_file, time_map_file], capture_output=True, text=True, check=True)
-        with open(active_file, 'w') as f:
-            f.write(res.stdout)
-        # 复用 local_batch 的解析/整形逻辑：按文本解析关键数，再生成 per_invoke
-        from run_models_local_batch_usbmon import parse_overlap_analysis_output, generate_active_analysis_from_overlap
-        overlap_data = parse_overlap_analysis_output(res.stdout, 0)
-        active_data = generate_active_analysis_from_overlap(overlap_data, json.load(open(invokes_file)).get('spans', []))
-    except Exception:
-        active_data = {}
+    # 活跃IO分析：改为基于 correct_per_invoke_stats 的全局“最大重叠分配”结果（跨窗去重）
+    active_data = {}
 
     # 读取invoke spans
     inv = json.load(open(invokes_file))
@@ -101,10 +92,9 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
     # 计算invoke与纯invoke
     invoke_ms = [(s['end']-s['begin'])*1000.0 for s in spans]
     pure_ms = []
-    per = active_data.get('per_invoke', [])
-    for i in range(len(spans)):
-        io_ms = (per[i].get('union_active_span_s', 0.0)*1000.0) if i < len(per) else 0.0
-        pure_ms.append(max(0.0, invoke_ms[i]-io_ms))
+    per = active_data.get('per_invoke', [])  # 若后面填充
+    # 先占位，稍后用 JSON_PER_INVOKE 替换 per
+    per_union_active_s = [0.0]*len(spans)
 
     def stat(arr):
         return {
@@ -127,8 +117,26 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
     try:
         # 为 combo 的“全局分配”改造：在 combo 根目录准备 merged_invokes.json（包含所有段窗口及 seg 索引）
         merged_file = os.path.join(combo_root, "merged_invokes.json")
-        if not os.path.exists(merged_file):
-            # 合并 combo_root 下所有以 seg 开头的目录（支持 seg2to8 等标签）
+        # 每次分析都重新合并，避免使用过期窗口导致 0 字节
+        merged = {'spans': []}
+        for name in sorted(os.listdir(combo_root)):
+            seg_path = os.path.join(combo_root, name)
+            if not (os.path.isdir(seg_path) and name.startswith('seg')):
+                continue
+            seg_inv = os.path.join(seg_path, 'invokes.json')
+            if not os.path.exists(seg_inv):
+                continue
+            J = json.load(open(seg_inv))
+            for sp in (J.get('spans') or []):
+                merged['spans'].append({'begin': sp['begin'], 'end': sp['end'], 'seg_label': name})
+        merged['spans'].sort(key=lambda x: x['begin'])
+        json.dump(merged, open(merged_file, 'w'))
+
+        # 运行权威统计，使用 overlap + 最大重叠分配（脚本内实现），一次性覆盖所有窗口
+        if not os.path.exists(CORRECT_PER_INVOKE):
+            raise FileNotFoundError(CORRECT_PER_INVOKE)
+        # 确保 merged_invokes.json 为最新（每次重建）
+        try:
             merged = {'spans': []}
             for name in sorted(os.listdir(combo_root)):
                 seg_path = os.path.join(combo_root, name)
@@ -140,66 +148,105 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_num:
                 J = json.load(open(seg_inv))
                 for sp in (J.get('spans') or []):
                     merged['spans'].append({'begin': sp['begin'], 'end': sp['end'], 'seg_label': name})
-            # 排序保证时间顺序
             merged['spans'].sort(key=lambda x: x['begin'])
             json.dump(merged, open(merged_file, 'w'))
+        except Exception:
+            pass
 
-        # 运行权威统计，使用 overlap + 最大重叠分配（脚本内实现），一次性覆盖所有窗口
-        if not os.path.exists(CORRECT_PER_INVOKE):
-            raise FileNotFoundError(CORRECT_PER_INVOKE)
         res_corr = subprocess.run([VENV_PY, CORRECT_PER_INVOKE, usbmon_file, merged_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete", "--include", "overlap"], capture_output=True, text=True, check=True)
         txt = res_corr.stdout or ""
+        # 将完整输出保存，便于排错
+        try:
+            with open(os.path.join(combo_root, "correct_per_invoke_stdout.txt"), 'w') as _fo:
+                _fo.write(txt)
+        except Exception:
+            pass
         import re as _re, json as _json
-        # 解析 per-invoke 明细（JSON_PER_INVOKE），按 seg 聚合出本段平均字节
-        avg_in_bytes = avg_out_bytes = 0.0
-        mj = _re.search(r"JSON_PER_INVOKE:\s*(\[.*\])", txt)
+        # 解析 per-invoke 明细（JSON_PER_INVOKE），按 seg 聚合出本段平均字节与活跃时长（去重后）
+        avg_in_bytes = None
+        avg_out_bytes = None
+        mj = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
         if mj:
             try:
                 arr = _json.loads(mj.group(1))
                 # 按 seg_label 聚合：从 merged_invokes.json 中筛出当前段的窗口索引
                 merged = _json.loads(open(merged_file).read())
                 all_spans = merged.get('spans', [])
-                seg_label = os.path.basename(seg_dir)
-                idxs = [i for i, ss in enumerate(all_spans) if ss.get('seg_label') == seg_label]
-                vals_in = [arr[i]['bytes_in'] for i in idxs if 0 <= i < len(arr)]
-                vals_out = [arr[i]['bytes_out'] for i in idxs if 0 <= i < len(arr)]
+                seg_label_local = os.path.basename(seg_dir)
+                idxs = [i for i, ss in enumerate(all_spans) if ss.get('seg_label') == seg_label_local]
+                vals_in = [float(arr[i].get('bytes_in', 0.0)) for i in idxs if 0 <= i < len(arr)]
+                vals_out = [float(arr[i].get('bytes_out', 0.0)) for i in idxs if 0 <= i < len(arr)]
+                # 活跃并集（按去重后的URB集合）：近似取 max(in_active_s, out_active_s)
+                # 注：correct_per_invoke_stats 已按URB最大重叠分配到单窗，不会跨窗重复
+                per_union_active_s = [
+                    max(float(arr[i].get('in_active_s', 0.0)), float(arr[i].get('out_active_s', 0.0)))
+                    for i in idxs if 0 <= i < len(arr)
+                ]
                 if vals_in:
                     avg_in_bytes = sum(vals_in)/len(vals_in)
                 if vals_out:
                     avg_out_bytes = sum(vals_out)/len(vals_out)
             except Exception:
-                avg_in_bytes = avg_out_bytes = 0.0
+                avg_in_bytes = avg_out_bytes = None
+        # 回退：解析 JSON_SUMMARY（兼容新老字段名）
+        if avg_in_bytes is None or avg_out_bytes is None:
+            try:
+                ms = _re.search(r"JSON_SUMMARY:\s*(\{.*?\})", txt, flags=_re.S)
+                if ms:
+                    sj = _json.loads(ms.group(1))
+                    v_in = sj.get('avg_bytes_in_per_invoke')
+                    v_out = sj.get('avg_bytes_out_per_invoke')
+                    if (v_in is None) and ('warm_avg_in_bytes' in sj):
+                        v_in = sj.get('warm_avg_in_bytes')
+                    if (v_out is None) and ('warm_avg_out_bytes' in sj):
+                        v_out = sj.get('warm_avg_out_bytes')
+                    if avg_in_bytes is None:
+                        avg_in_bytes = float(v_in or 0.0)
+                    if avg_out_bytes is None:
+                        avg_out_bytes = float(v_out or 0.0)
+            except Exception:
+                pass
         # 用本段的窗口均值换算速率
         avg_span_s = (sum(invoke_ms)/len(invoke_ms)/1000.0) if invoke_ms else 0.0
         to_MiB = lambda b: (b/(1024.0*1024.0))
         overall_avg = {
             'span_s': avg_span_s,
-            'avg_bytes_in_per_invoke': avg_in_bytes,
-            'avg_bytes_out_per_invoke': avg_out_bytes,
+            'avg_bytes_in_per_invoke': float(avg_in_bytes or 0.0),
+            'avg_bytes_out_per_invoke': float(avg_out_bytes or 0.0),
             'MiBps_in': (to_MiB(avg_in_bytes)/avg_span_s) if avg_span_s>0 else 0.0,
             'MiBps_out': (to_MiB(avg_out_bytes)/avg_span_s) if avg_span_s>0 else 0.0,
         }
     except Exception as _:
         pass
 
-    # 活跃IO均值（严格窗口，按并集，仅展示占用，不再用于速率）
+    # 活跃IO均值（严格窗口，并集＝max(in_active,out_active)，URB 已去重）
     active_union_avg = None
-    if per:
-        avg_active_ms = statistics.mean([(x.get('union_active_span_s',0.0)*1000.0) for x in per])
-        avg_in_bytes = statistics.mean([x.get('bytes_in',0) for x in per])
-        avg_out_bytes = statistics.mean([x.get('bytes_out',0) for x in per])
+    if per_union_active_s:
+        avg_active_ms = statistics.mean([s*1000.0 for s in per_union_active_s])
         active_union_avg = {
             'avg_active_ms': avg_active_ms,
-            'avg_bytes_in_per_invoke': avg_in_bytes,
-            'avg_bytes_out_per_invoke': avg_out_bytes,
+            'avg_bytes_in_per_invoke': overall_avg.get('avg_bytes_in_per_invoke', 0.0),
+            'avg_bytes_out_per_invoke': overall_avg.get('avg_bytes_out_per_invoke', 0.0),
         }
+
+    # 用分配后的活跃时间重算纯净 invoke
+    if per_union_active_s:
+        pure_ms = [max(0.0, iv - ua*1000.0) for iv, ua in zip(invoke_ms, per_union_active_s)]
+    else:
+        pure_ms = [iv for iv in invoke_ms]
+
+    # 尝试解析段序号（用于展示）；优先 segX or segXtoY 的起始 X
+    import re as _re
+    m = _re.match(r"seg(\d+)", seg_label)
+    seg_num = int(m.group(1)) if m else None
 
     summary = {
         'model_name': model_name,
+        'segment_label': seg_label,
         'segment_number': seg_num,
         'inference_performance': {
-            'invoke_times': stat(invoke_ms),
-            'pure_invoke_times': stat(pure_ms),
+            'invoke_times': {**stat(invoke_ms), 'all_times_ms': invoke_ms},
+            'pure_invoke_times': {**stat(pure_ms), 'all_times_ms': pure_ms},
         },
         'io_performance': {
             'strict_window': {
@@ -272,26 +319,44 @@ def main():
                 print("采集失败:", r.stderr[-200:])
                 continue
 
-            # 分析各段（依据实际产生的 seg*/invokes.json 动态决定阶段数）
-            available_segs = []
-            for seg in range(1, 9):
-                invp = os.path.join(combo_out, f"seg{seg}", "invokes.json")
-                if os.path.isfile(invp):
-                    available_segs.append(seg)
-            if not available_segs:
+            # 分析各段（动态发现以 seg 开头的目录，支持 segXtoY）
+            import re as _re
+            seg_dirs = [d for d in sorted(os.listdir(combo_out)) if d.startswith('seg') and os.path.isdir(os.path.join(combo_out, d))]
+            if not seg_dirs:
                 print("(分析失败) 未发现任何 seg*/invokes.json")
-            for seg in available_segs:
-                seg_dir = os.path.join(combo_out, f"seg{seg}")
-                s = analyze_performance(combo_out, seg_dir, f"{model_name}_K{k}", seg)
+            # 依据起始段号排序（segX 或 segXtoY 的 X）
+            def seg_key(lbl: str):
+                m = _re.match(r"seg(\d+)", lbl)
+                return int(m.group(1)) if m else 999
+            seg_dirs.sort(key=seg_key)
+            # 仅保留本K应有的段
+            # - K=2..7：seg1..seg{k-1} + seg{k}to8（若存在）
+            # - K=8：完整拆分，使用 seg1..seg8（目录名为 seg1, seg2, ..., seg8）
+            if k == 8:
+                filtered = [lbl for lbl in seg_dirs if _re.fullmatch(r"seg[1-8]", lbl)]
+            else:
+                expected = {f"seg{i}": True for i in range(1, k)}
+                tail_label = f"seg{k}to8"
+                filtered = []
+                for lbl in seg_dirs:
+                    if lbl in expected or lbl == tail_label:
+                        filtered.append(lbl)
+            seg_dirs = filtered
+            for seg_lbl in seg_dirs:
+                seg_dir = os.path.join(combo_out, seg_lbl)
+                invp = os.path.join(seg_dir, 'invokes.json')
+                if not os.path.isfile(invp):
+                    continue
+                s = analyze_performance(combo_out, seg_dir, f"{model_name}_K{k}", seg_lbl)
                 if s:
                     inv = s['inference_performance']['invoke_times']
                     pure = s['inference_performance']['pure_invoke_times']
                     avg = s.get('io_performance',{}).get('strict_window',{}).get('overall_avg',{})
-                    print(f"--- {model_name} K{k} seg{seg} ---")
+                    print(f"--- {model_name} K{k} {seg_lbl} ---")
                     print(f"Invoke均值: {inv.get('mean_ms',0):.2f}ms, 纯Invoke均值: {pure.get('mean_ms',0):.2f}ms")
                     print(f"IN/OUT字节: {avg.get('avg_bytes_in_per_invoke',0)/1024/1024:.3f}MiB/{avg.get('avg_bytes_out_per_invoke',0)/1024/1024:.3f}MiB")
                 else:
-                    print(f"(分析失败) {model_name} K{k} seg{seg}")
+                    print(f"(分析失败) {model_name} K{k} {seg_lbl}")
 
     print("==========================================")
     print("完成：组合模拟链式批量测试")

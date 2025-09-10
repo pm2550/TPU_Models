@@ -54,13 +54,14 @@ CATPID=$!
 trap 'kill "$CATPID" 2>/dev/null || true' INT TERM EXIT
 sleep 0.1
 
-# 启动映射记录器：读取首条 usbmon 行第二列，与 BOOTTIME 建立映射
+# 启动映射记录器：读取首条 usbmon 行第2列时间戳（第1列为URB指针），与 BOOTTIME 建立映射
 "$PY_MAP" - "$CAP" "$TM" <<'PY' &
 import json,sys,time,re
 cap, tm_path = sys.argv[1:]
 usb_ts=None
-# 修正：usbmon 格式为 "timestamp URB_ID ..."，取第1列时间戳
-pat=re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s+")
+# 典型 usbmon 行格式："ffff88003d8fd680 123456.789012 S Bo:1:002:... len=..."
+# 第1列为URB地址（非数字），第2列为时间戳（秒）
+pat=re.compile(r"^\s*\S+\s+([0-9]+(?:\.[0-9]+)?)\s+")
 deadline=time.time()+10.0
 while time.time()<deadline and usb_ts is None:
     try:
