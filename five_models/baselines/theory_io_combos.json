@@ -7,14 +7,18 @@
           "theory_IN_bytes": 137984,
           "off_used_MiB": 0.359,
           "base_input_bytes": 150528,
-          "base_output_bytes": 137984
+          "base_output_bytes": 137984,
+          "segment_model_bytes": 3424864,
+          "segment_model_MiB": 3.266
         },
         "seg2to8": {
           "theory_OUT_bytes": 12427295,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 11.72,
           "base_input_bytes": 137984,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 20771424,
+          "segment_model_MiB": 19.809
         }
       },
       "K3": {
@@ -23,21 +27,27 @@
           "theory_IN_bytes": 137984,
           "off_used_MiB": 0.359,
           "base_input_bytes": 150528,
-          "base_output_bytes": 137984
+          "base_output_bytes": 137984,
+          "segment_model_bytes": 3424864,
+          "segment_model_MiB": 3.266
         },
         "seg2": {
           "theory_OUT_bytes": 700021,
           "theory_IN_bytes": 250880,
           "off_used_MiB": 0.536,
           "base_input_bytes": 137984,
-          "base_output_bytes": 250880
+          "base_output_bytes": 250880,
+          "segment_model_bytes": 3699296,
+          "segment_model_MiB": 3.528
         },
         "seg3to8": {
           "theory_OUT_bytes": 9048433,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 8.39,
           "base_input_bytes": 250880,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 17105504,
+          "segment_model_MiB": 16.313
         }
       },
       "K4": {
@@ -46,28 +56,36 @@
           "theory_IN_bytes": 137984,
           "off_used_MiB": 0.359,
           "base_input_bytes": 150528,
-          "base_output_bytes": 137984
+          "base_output_bytes": 137984,
+          "segment_model_bytes": 3424864,
+          "segment_model_MiB": 3.266
         },
         "seg2": {
           "theory_OUT_bytes": 700021,
           "theory_IN_bytes": 250880,
           "off_used_MiB": 0.536,
           "base_input_bytes": 137984,
-          "base_output_bytes": 250880
+          "base_output_bytes": 250880,
+          "segment_model_bytes": 3699296,
+          "segment_model_MiB": 3.528
         },
         "seg3": {
           "theory_OUT_bytes": 809771,
           "theory_IN_bytes": 326144,
           "off_used_MiB": 0.533,
           "base_input_bytes": 250880,
-          "base_output_bytes": 326144
+          "base_output_bytes": 326144,
+          "segment_model_bytes": 3400288,
+          "segment_model_MiB": 3.243
         },
         "seg4to8": {
           "theory_OUT_bytes": 5894083,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 5.31,
           "base_input_bytes": 326144,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 13738592,
+          "segment_model_MiB": 13.102
         }
       },
       "K5": {
@@ -76,35 +94,45 @@
           "theory_IN_bytes": 137984,
           "off_used_MiB": 0.359,
           "base_input_bytes": 150528,
-          "base_output_bytes": 137984
+          "base_output_bytes": 137984,
+          "segment_model_bytes": 3424864,
+          "segment_model_MiB": 3.266
         },
         "seg2": {
           "theory_OUT_bytes": 700021,
           "theory_IN_bytes": 250880,
           "off_used_MiB": 0.536,
           "base_input_bytes": 137984,
-          "base_output_bytes": 250880
+          "base_output_bytes": 250880,
+          "segment_model_bytes": 3699296,
+          "segment_model_MiB": 3.528
         },
         "seg3": {
           "theory_OUT_bytes": 809771,
           "theory_IN_bytes": 326144,
           "off_used_MiB": 0.533,
           "base_input_bytes": 250880,
-          "base_output_bytes": 326144
+          "base_output_bytes": 326144,
+          "segment_model_bytes": 3400288,
+          "segment_model_MiB": 3.243
         },
         "seg4": {
           "theory_OUT_bytes": 602968,
           "theory_IN_bytes": 43904,
           "off_used_MiB": 0.264,
           "base_input_bytes": 326144,
-          "base_output_bytes": 43904
+          "base_output_bytes": 43904,
+          "segment_model_bytes": 2998880,
+          "segment_model_MiB": 2.86
         },
         "seg5to8": {
           "theory_OUT_bytes": 2529029,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 2.37,
           "base_input_bytes": 43904,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 10777184,
+          "segment_model_MiB": 10.278
         }
       },
       "K6": {
@@ -113,42 +141,54 @@
           "theory_IN_bytes": 137984,
           "off_used_MiB": 0.359,
           "base_input_bytes": 150528,
-          "base_output_bytes": 137984
+          "base_output_bytes": 137984,
+          "segment_model_bytes": 3424864,
+          "segment_model_MiB": 3.266
         },
         "seg2": {
           "theory_OUT_bytes": 700021,
           "theory_IN_bytes": 250880,
           "off_used_MiB": 0.536,
           "base_input_bytes": 137984,
-          "base_output_bytes": 250880
+          "base_output_bytes": 250880,
+          "segment_model_bytes": 3699296,
+          "segment_model_MiB": 3.528
         },
         "seg3": {
           "theory_OUT_bytes": 809771,
           "theory_IN_bytes": 326144,
           "off_used_MiB": 0.533,
           "base_input_bytes": 250880,
-          "base_output_bytes": 326144
+          "base_output_bytes": 326144,
+          "segment_model_bytes": 3400288,
+          "segment_model_MiB": 3.243
         },
         "seg4": {
           "theory_OUT_bytes": 602968,
           "theory_IN_bytes": 43904,
           "off_used_MiB": 0.264,
           "base_input_bytes": 326144,
-          "base_output_bytes": 43904
+          "base_output_bytes": 43904,
+          "segment_model_bytes": 2998880,
+          "segment_model_MiB": 2.86
         },
         "seg5": {
           "theory_OUT_bytes": 538832,
           "theory_IN_bytes": 65856,
           "off_used_MiB": 0.472,
           "base_input_bytes": 43904,
-          "base_output_bytes": 65856
+          "base_output_bytes": 65856,
+          "segment_model_bytes": 3166816,
+          "segment_model_MiB": 3.02
         },
         "seg6to8": {
           "theory_OUT_bytes": 1057809,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 0.946,
           "base_input_bytes": 65856,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 7639648,
+          "segment_model_MiB": 7.286
         }
       },
       "K7": {
@@ -157,49 +197,63 @@
           "theory_IN_bytes": 137984,
           "off_used_MiB": 0.359,
           "base_input_bytes": 150528,
-          "base_output_bytes": 137984
+          "base_output_bytes": 137984,
+          "segment_model_bytes": 3424864,
+          "segment_model_MiB": 3.266
         },
         "seg2": {
           "theory_OUT_bytes": 700021,
           "theory_IN_bytes": 250880,
           "off_used_MiB": 0.536,
           "base_input_bytes": 137984,
-          "base_output_bytes": 250880
+          "base_output_bytes": 250880,
+          "segment_model_bytes": 3699296,
+          "segment_model_MiB": 3.528
         },
         "seg3": {
           "theory_OUT_bytes": 809771,
           "theory_IN_bytes": 326144,
           "off_used_MiB": 0.533,
           "base_input_bytes": 250880,
-          "base_output_bytes": 326144
+          "base_output_bytes": 326144,
+          "segment_model_bytes": 3400288,
+          "segment_model_MiB": 3.243
         },
         "seg4": {
           "theory_OUT_bytes": 602968,
           "theory_IN_bytes": 43904,
           "off_used_MiB": 0.264,
           "base_input_bytes": 326144,
-          "base_output_bytes": 43904
+          "base_output_bytes": 43904,
+          "segment_model_bytes": 2998880,
+          "segment_model_MiB": 2.86
         },
         "seg5": {
           "theory_OUT_bytes": 538832,
           "theory_IN_bytes": 65856,
           "off_used_MiB": 0.472,
           "base_input_bytes": 43904,
-          "base_output_bytes": 65856
+          "base_output_bytes": 65856,
+          "segment_model_bytes": 3166816,
+          "segment_model_MiB": 3.02
         },
         "seg6": {
           "theory_OUT_bytes": 595387,
           "theory_IN_bytes": 83104,
           "off_used_MiB": 0.505,
           "base_input_bytes": 65856,
-          "base_output_bytes": 83104
+          "base_output_bytes": 83104,
+          "segment_model_bytes": 3203680,
+          "segment_model_MiB": 3.055
         },
         "seg7to8": {
           "theory_OUT_bytes": 545526,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 0.441,
           "base_input_bytes": 83104,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 4473440,
+          "segment_model_MiB": 4.266
         }
       }
     }
@@ -212,14 +266,18 @@
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2556512,
+          "segment_model_MiB": 2.438
         },
         "seg2to8": {
           "theory_OUT_bytes": 14975416,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 14.07,
           "base_input_bytes": 221952,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 22463072,
+          "segment_model_MiB": 21.422
         }
       },
       "K3": {
@@ -228,21 +286,27 @@
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2556512,
+          "segment_model_MiB": 2.438
         },
         "seg2": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 3293792,
+          "segment_model_MiB": 3.141
         },
         "seg3to8": {
           "theory_OUT_bytes": 11787745,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 11.03,
           "base_input_bytes": 221952,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 19198560,
+          "segment_model_MiB": 18.309
         }
       },
       "K4": {
@@ -251,28 +315,36 @@
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2556512,
+          "segment_model_MiB": 2.438
         },
         "seg2": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 3293792,
+          "segment_model_MiB": 3.141
         },
         "seg3": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 1954400,
+          "segment_model_MiB": 1.864
         },
         "seg4to8": {
           "theory_OUT_bytes": 9900308,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 9.23,
           "base_input_bytes": 221952,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 17273440,
+          "segment_model_MiB": 16.473
         }
       },
       "K5": {
@@ -281,35 +353,45 @@
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2556512,
+          "segment_model_MiB": 2.438
         },
         "seg2": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 3293792,
+          "segment_model_MiB": 3.141
         },
         "seg3": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 1954400,
+          "segment_model_MiB": 1.864
         },
         "seg4": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2212448,
+          "segment_model_MiB": 2.11
         },
         "seg5to8": {
           "theory_OUT_bytes": 7593441,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 7.03,
           "base_input_bytes": 221952,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 15094368,
+          "segment_model_MiB": 14.395
         }
       },
       "K6": {
@@ -318,42 +400,54 @@
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2556512,
+          "segment_model_MiB": 2.438
         },
         "seg2": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 3293792,
+          "segment_model_MiB": 3.141
         },
         "seg3": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 1954400,
+          "segment_model_MiB": 1.864
         },
         "seg4": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2212448,
+          "segment_model_MiB": 2.11
         },
         "seg5": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 81920,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 81920
+          "base_output_bytes": 81920,
+          "segment_model_bytes": 1749600,
+          "segment_model_MiB": 1.669
         },
         "seg6to8": {
           "theory_OUT_bytes": 5754716,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 5.41,
           "base_input_bytes": 81920,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 13374048,
+          "segment_model_MiB": 12.754
         }
       },
       "K7": {
@@ -362,49 +456,63 @@
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2556512,
+          "segment_model_MiB": 2.438
         },
         "seg2": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 3293792,
+          "segment_model_MiB": 3.141
         },
         "seg3": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 1954400,
+          "segment_model_MiB": 1.864
         },
         "seg4": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 221952,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 221952
+          "base_output_bytes": 221952,
+          "segment_model_bytes": 2212448,
+          "segment_model_MiB": 2.11
         },
         "seg5": {
           "theory_OUT_bytes": 221952,
           "theory_IN_bytes": 81920,
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
-          "base_output_bytes": 81920
+          "base_output_bytes": 81920,
+          "segment_model_bytes": 1749600,
+          "segment_model_MiB": 1.669
         },
         "seg6": {
           "theory_OUT_bytes": 81920,
           "theory_IN_bytes": 131072,
           "off_used_MiB": 0.0,
           "base_input_bytes": 81920,
-          "base_output_bytes": 131072
+          "base_output_bytes": 131072,
+          "segment_model_bytes": 5100128,
+          "segment_model_MiB": 4.864
         },
         "seg7to8": {
           "theory_OUT_bytes": 968884,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 0.799,
           "base_input_bytes": 131072,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 8299104,
+          "segment_model_MiB": 7.915
         }
       }
     }
@@ -417,14 +525,18 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5321312,
+          "segment_model_MiB": 5.075
         },
         "seg2to8": {
           "theory_OUT_bytes": 31815270,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 30.15,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 39834208,
+          "segment_model_MiB": 37.989
         }
       },
       "K3": {
@@ -433,21 +545,27 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5321312,
+          "segment_model_MiB": 5.075
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg3to8": {
           "theory_OUT_bytes": 26215875,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 24.81,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 34181728,
+          "segment_model_MiB": 32.598
         }
       },
       "K4": {
@@ -456,28 +574,36 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5321312,
+          "segment_model_MiB": 5.075
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg4to8": {
           "theory_OUT_bytes": 20605993,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 19.46,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 28533344,
+          "segment_model_MiB": 27.212
         }
       },
       "K5": {
@@ -486,35 +612,45 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5321312,
+          "segment_model_MiB": 5.075
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg4": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg5to8": {
           "theory_OUT_bytes": 15006597,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 14.12,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 22880864,
+          "segment_model_MiB": 21.821
         }
       },
       "K6": {
@@ -523,42 +659,54 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5321312,
+          "segment_model_MiB": 5.075
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg4": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg5": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg6to8": {
           "theory_OUT_bytes": 9407201,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 8.78,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 17228384,
+          "segment_model_MiB": 16.43
         }
       },
       "K7": {
@@ -567,49 +715,63 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5321312,
+          "segment_model_MiB": 5.075
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg4": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg5": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 5689952,
+          "segment_model_MiB": 5.426
         },
         "seg6": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 100352,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 100352
+          "base_output_bytes": 100352,
+          "segment_model_bytes": 6103648,
+          "segment_model_MiB": 5.821
         },
         "seg7to8": {
           "theory_OUT_bytes": 3256566,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 3.01,
           "base_input_bytes": 100352,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 11166304,
+          "segment_model_MiB": 10.649
         }
       }
     }
@@ -622,14 +784,18 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3060320,
+          "segment_model_MiB": 2.919
         },
         "seg2to8": {
           "theory_OUT_bytes": 15006597,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 14.12,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 22880864,
+          "segment_model_MiB": 21.821
         }
       },
       "K3": {
@@ -638,21 +804,27 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3060320,
+          "segment_model_MiB": 2.919
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3428960,
+          "segment_model_MiB": 3.27
         },
         "seg3to8": {
           "theory_OUT_bytes": 11651154,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 10.92,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 19489376,
+          "segment_model_MiB": 18.587
         }
       },
       "K4": {
@@ -661,28 +833,36 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3060320,
+          "segment_model_MiB": 2.919
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3428960,
+          "segment_model_MiB": 3.27
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 1167968,
+          "segment_model_MiB": 1.114
         },
         "seg4to8": {
           "theory_OUT_bytes": 10529178,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 9.85,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 18358880,
+          "segment_model_MiB": 17.508
         }
       },
       "K5": {
@@ -691,35 +871,45 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3060320,
+          "segment_model_MiB": 2.919
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3428960,
+          "segment_model_MiB": 3.27
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 1167968,
+          "segment_model_MiB": 1.114
         },
         "seg4": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 1167968,
+          "segment_model_MiB": 1.114
         },
         "seg5to8": {
           "theory_OUT_bytes": 9407201,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 8.78,
           "base_input_bytes": 200704,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 17228384,
+          "segment_model_MiB": 16.43
         }
       },
       "K6": {
@@ -728,42 +918,54 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3060320,
+          "segment_model_MiB": 2.919
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3428960,
+          "segment_model_MiB": 3.27
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 1167968,
+          "segment_model_MiB": 1.114
         },
         "seg4": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 1167968,
+          "segment_model_MiB": 1.114
         },
         "seg5": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 100352,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 100352
+          "base_output_bytes": 100352,
+          "segment_model_bytes": 6103648,
+          "segment_model_MiB": 5.821
         },
         "seg6to8": {
           "theory_OUT_bytes": 3256566,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 3.01,
           "base_input_bytes": 100352,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 11166304,
+          "segment_model_MiB": 10.649
         }
       },
       "K7": {
@@ -772,49 +974,63 @@
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 150528,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3060320,
+          "segment_model_MiB": 2.919
         },
         "seg2": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 3428960,
+          "segment_model_MiB": 3.27
         },
         "seg3": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 1167968,
+          "segment_model_MiB": 1.114
         },
         "seg4": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 200704,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 200704
+          "base_output_bytes": 200704,
+          "segment_model_bytes": 1167968,
+          "segment_model_MiB": 1.114
         },
         "seg5": {
           "theory_OUT_bytes": 200704,
           "theory_IN_bytes": 100352,
           "off_used_MiB": 0.0,
           "base_input_bytes": 200704,
-          "base_output_bytes": 100352
+          "base_output_bytes": 100352,
+          "segment_model_bytes": 6103648,
+          "segment_model_MiB": 5.821
         },
         "seg6": {
           "theory_OUT_bytes": 100352,
           "theory_IN_bytes": 100352,
           "off_used_MiB": 0.0,
           "base_input_bytes": 100352,
-          "base_output_bytes": 100352
+          "base_output_bytes": 100352,
+          "segment_model_bytes": 4518496,
+          "segment_model_MiB": 4.309
         },
         "seg7to8": {
           "theory_OUT_bytes": 100352,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 0.0,
           "base_input_bytes": 100352,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 6685280,
+          "segment_model_MiB": 6.376
         }
       }
     }
@@ -827,14 +1043,18 @@
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3318368,
+          "segment_model_MiB": 3.165
         },
         "seg2to8": {
           "theory_OUT_bytes": 14963844,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 14.02,
           "base_input_bytes": 262808,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 21672544,
+          "segment_model_MiB": 20.669
         }
       },
       "K3": {
@@ -843,21 +1063,27 @@
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3318368,
+          "segment_model_MiB": 3.165
         },
         "seg2": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg3to8": {
           "theory_OUT_bytes": 11021198,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 10.26,
           "base_input_bytes": 262808,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 18104928,
+          "segment_model_MiB": 17.266
         }
       },
       "K4": {
@@ -866,28 +1092,36 @@
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3318368,
+          "segment_model_MiB": 3.165
         },
         "seg2": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg3": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg4to8": {
           "theory_OUT_bytes": 7382639,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 6.79,
           "base_input_bytes": 262808,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 14537312,
+          "segment_model_MiB": 13.864
         }
       },
       "K5": {
@@ -896,35 +1130,45 @@
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3318368,
+          "segment_model_MiB": 3.165
         },
         "seg2": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg3": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg4": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg5to8": {
           "theory_OUT_bytes": 4006224,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 3.57,
           "base_input_bytes": 262808,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 10965600,
+          "segment_model_MiB": 10.458
         }
       },
       "K6": {
@@ -933,42 +1177,54 @@
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3318368,
+          "segment_model_MiB": 3.165
         },
         "seg2": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg3": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg4": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg5": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 1823328,
+          "segment_model_MiB": 1.739
         },
         "seg6to8": {
           "theory_OUT_bytes": 2328503,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 1.97,
           "base_input_bytes": 262808,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 9183840,
+          "segment_model_MiB": 8.758
         }
       },
       "K7": {
@@ -977,49 +1233,63 @@
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3318368,
+          "segment_model_MiB": 3.165
         },
         "seg2": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg3": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg4": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 3605088,
+          "segment_model_MiB": 3.438
         },
         "seg5": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 262808,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 262808
+          "base_output_bytes": 262808,
+          "segment_model_bytes": 1823328,
+          "segment_model_MiB": 1.739
         },
         "seg6": {
           "theory_OUT_bytes": 262808,
           "theory_IN_bytes": 153600,
           "off_used_MiB": 0.0,
           "base_input_bytes": 262808,
-          "base_output_bytes": 153600
+          "base_output_bytes": 153600,
+          "segment_model_bytes": 3797600,
+          "segment_model_MiB": 3.622
         },
         "seg7to8": {
           "theory_OUT_bytes": 153600,
           "theory_IN_bytes": 1000,
           "off_used_MiB": 0.0,
           "base_input_bytes": 153600,
-          "base_output_bytes": 1000
+          "base_output_bytes": 1000,
+          "segment_model_bytes": 5419616,
+          "segment_model_MiB": 5.169
         }
       }
     }

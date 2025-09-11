@@ -1,212 +1,422 @@
 {
-  "densenet201_8seg_uniform_local": [
-    {
-      "seg": 1,
-      "OUT_bytes": 526967,
-      "IN_bytes": 137984
-    },
-    {
-      "seg": 2,
-      "OUT_bytes": 700021,
-      "IN_bytes": 250880
-    },
-    {
-      "seg": 3,
-      "OUT_bytes": 809771,
-      "IN_bytes": 326144
-    },
-    {
-      "seg": 4,
-      "OUT_bytes": 602968,
-      "IN_bytes": 43904
-    },
-    {
-      "seg": 5,
-      "OUT_bytes": 538832,
-      "IN_bytes": 65856
-    },
-    {
-      "seg": 6,
-      "OUT_bytes": 595387,
-      "IN_bytes": 83104
-    },
-    {
-      "seg": 7,
-      "OUT_bytes": 545526,
-      "IN_bytes": 1920
-    },
-    {
-      "seg": 8,
-      "OUT_bytes": 1920,
-      "IN_bytes": 1000
+  "densenet201_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "theory_OUT_bytes": 526967,
+        "theory_IN_bytes": 137984,
+        "base_input_bytes": 150528,
+        "base_output_bytes": 137984,
+        "off_chip_MiB": 0.359,
+        "off_used_MiB": 0.359,
+        "segment_model_bytes": 3474016,
+        "segment_model_MiB": 3.313
+      },
+      "seg2": {
+        "theory_OUT_bytes": 700021,
+        "theory_IN_bytes": 250880,
+        "base_input_bytes": 137984,
+        "base_output_bytes": 250880,
+        "off_chip_MiB": 0.536,
+        "off_used_MiB": 0.536,
+        "segment_model_bytes": 3727968,
+        "segment_model_MiB": 3.555
+      },
+      "seg3": {
+        "theory_OUT_bytes": 809771,
+        "theory_IN_bytes": 326144,
+        "base_input_bytes": 250880,
+        "base_output_bytes": 326144,
+        "off_chip_MiB": 0.533,
+        "off_used_MiB": 0.533,
+        "segment_model_bytes": 3420768,
+        "segment_model_MiB": 3.262
+      },
+      "seg4": {
+        "theory_OUT_bytes": 602968,
+        "theory_IN_bytes": 43904,
+        "base_input_bytes": 326144,
+        "base_output_bytes": 43904,
+        "off_chip_MiB": 0.264,
+        "off_used_MiB": 0.264,
+        "segment_model_bytes": 3011168,
+        "segment_model_MiB": 2.872
+      },
+      "seg5": {
+        "theory_OUT_bytes": 538832,
+        "theory_IN_bytes": 65856,
+        "base_input_bytes": 43904,
+        "base_output_bytes": 65856,
+        "off_chip_MiB": 0.472,
+        "off_used_MiB": 0.472,
+        "segment_model_bytes": 3191392,
+        "segment_model_MiB": 3.044
+      },
+      "seg6": {
+        "theory_OUT_bytes": 595387,
+        "theory_IN_bytes": 83104,
+        "base_input_bytes": 65856,
+        "base_output_bytes": 83104,
+        "off_chip_MiB": 0.505,
+        "off_used_MiB": 0.505,
+        "segment_model_bytes": 3215968,
+        "segment_model_MiB": 3.067
+      },
+      "seg7": {
+        "theory_OUT_bytes": 545526,
+        "theory_IN_bytes": 1920,
+        "base_input_bytes": 83104,
+        "base_output_bytes": 1920,
+        "off_chip_MiB": 0.441,
+        "off_used_MiB": 0.441,
+        "segment_model_bytes": 2470496,
+        "segment_model_MiB": 2.356
+      },
+      "seg8": {
+        "theory_OUT_bytes": 1920,
+        "theory_IN_bytes": 1000,
+        "base_input_bytes": 1920,
+        "base_output_bytes": 1000,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 2048608,
+        "segment_model_MiB": 1.954
+      }
     }
-  ],
-  "inceptionv3_8seg_uniform_local": [
-    {
-      "seg": 1,
-      "OUT_bytes": 268203,
-      "IN_bytes": 221952
-    },
-    {
-      "seg": 2,
-      "OUT_bytes": 221952,
-      "IN_bytes": 221952
-    },
-    {
-      "seg": 3,
-      "OUT_bytes": 221952,
-      "IN_bytes": 221952
-    },
-    {
-      "seg": 4,
-      "OUT_bytes": 221952,
-      "IN_bytes": 221952
-    },
-    {
-      "seg": 5,
-      "OUT_bytes": 221952,
-      "IN_bytes": 81920
-    },
-    {
-      "seg": 6,
-      "OUT_bytes": 81920,
-      "IN_bytes": 131072
-    },
-    {
-      "seg": 7,
-      "OUT_bytes": 968884,
-      "IN_bytes": 131072
-    },
-    {
-      "seg": 8,
-      "OUT_bytes": 131072,
-      "IN_bytes": 1000
+  },
+  "inceptionv3_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "theory_OUT_bytes": 268203,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 268203,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3924576,
+        "segment_model_MiB": 3.743
+      },
+      "seg2": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1970784,
+        "segment_model_MiB": 1.879
+      },
+      "seg3": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1970784,
+        "segment_model_MiB": 1.879
+      },
+      "seg4": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 2228832,
+        "segment_model_MiB": 2.126
+      },
+      "seg5": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 81920,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 81920,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1761888,
+        "segment_model_MiB": 1.68
+      },
+      "seg6": {
+        "theory_OUT_bytes": 81920,
+        "theory_IN_bytes": 131072,
+        "base_input_bytes": 81920,
+        "base_output_bytes": 131072,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 5128800,
+        "segment_model_MiB": 4.891
+      },
+      "seg7": {
+        "theory_OUT_bytes": 968884,
+        "theory_IN_bytes": 131072,
+        "base_input_bytes": 131072,
+        "base_output_bytes": 131072,
+        "off_chip_MiB": 0.799,
+        "off_used_MiB": 0.799,
+        "segment_model_bytes": 6160992,
+        "segment_model_MiB": 5.876
+      },
+      "seg8": {
+        "theory_OUT_bytes": 131072,
+        "theory_IN_bytes": 1000,
+        "base_input_bytes": 131072,
+        "base_output_bytes": 1000,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 2200160,
+        "segment_model_MiB": 2.098
+      }
     }
-  ],
-  "resnet101_8seg_uniform_local": [
-    {
-      "seg": 1,
-      "OUT_bytes": 150528,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 2,
-      "OUT_bytes": 200704,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 3,
-      "OUT_bytes": 200704,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 4,
-      "OUT_bytes": 200704,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 5,
-      "OUT_bytes": 200704,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 6,
-      "OUT_bytes": 200704,
-      "IN_bytes": 100352
-    },
-    {
-      "seg": 7,
-      "OUT_bytes": 3256566,
-      "IN_bytes": 100352
-    },
-    {
-      "seg": 8,
-      "OUT_bytes": 100352,
-      "IN_bytes": 1000
+  },
+  "resnet101_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "theory_OUT_bytes": 150528,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 150528,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 5407328,
+        "segment_model_MiB": 5.157
+      },
+      "seg2": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 5751392,
+        "segment_model_MiB": 5.485
+      },
+      "seg3": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 5751392,
+        "segment_model_MiB": 5.485
+      },
+      "seg4": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 5751392,
+        "segment_model_MiB": 5.485
+      },
+      "seg5": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 5751392,
+        "segment_model_MiB": 5.485
+      },
+      "seg6": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 100352,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 100352,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 6144608,
+        "segment_model_MiB": 5.86
+      },
+      "seg7": {
+        "theory_OUT_bytes": 3256566,
+        "theory_IN_bytes": 100352,
+        "base_input_bytes": 100352,
+        "base_output_bytes": 100352,
+        "off_chip_MiB": 3.01,
+        "off_used_MiB": 3.01,
+        "segment_model_bytes": 4543072,
+        "segment_model_MiB": 4.333
+      },
+      "seg8": {
+        "theory_OUT_bytes": 100352,
+        "theory_IN_bytes": 1000,
+        "base_input_bytes": 100352,
+        "base_output_bytes": 1000,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 6709856,
+        "segment_model_MiB": 6.399
+      }
     }
-  ],
-  "resnet50_8seg_uniform_local": [
-    {
-      "seg": 1,
-      "OUT_bytes": 150528,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 2,
-      "OUT_bytes": 200704,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 3,
-      "OUT_bytes": 200704,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 4,
-      "OUT_bytes": 200704,
-      "IN_bytes": 200704
-    },
-    {
-      "seg": 5,
-      "OUT_bytes": 200704,
-      "IN_bytes": 100352
-    },
-    {
-      "seg": 6,
-      "OUT_bytes": 100352,
-      "IN_bytes": 100352
-    },
-    {
-      "seg": 7,
-      "OUT_bytes": 100352,
-      "IN_bytes": 100352
-    },
-    {
-      "seg": 8,
-      "OUT_bytes": 100352,
-      "IN_bytes": 1000
+  },
+  "resnet50_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "theory_OUT_bytes": 150528,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 150528,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3121760,
+        "segment_model_MiB": 2.977
+      },
+      "seg2": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3465824,
+        "segment_model_MiB": 3.305
+      },
+      "seg3": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1180256,
+        "segment_model_MiB": 1.126
+      },
+      "seg4": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 200704,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 200704,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1180256,
+        "segment_model_MiB": 1.126
+      },
+      "seg5": {
+        "theory_OUT_bytes": 200704,
+        "theory_IN_bytes": 100352,
+        "base_input_bytes": 200704,
+        "base_output_bytes": 100352,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 6144608,
+        "segment_model_MiB": 5.86
+      },
+      "seg6": {
+        "theory_OUT_bytes": 100352,
+        "theory_IN_bytes": 100352,
+        "base_input_bytes": 100352,
+        "base_output_bytes": 100352,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 4543072,
+        "segment_model_MiB": 4.333
+      },
+      "seg7": {
+        "theory_OUT_bytes": 100352,
+        "theory_IN_bytes": 100352,
+        "base_input_bytes": 100352,
+        "base_output_bytes": 100352,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 4543072,
+        "segment_model_MiB": 4.333
+      },
+      "seg8": {
+        "theory_OUT_bytes": 100352,
+        "theory_IN_bytes": 1000,
+        "base_input_bytes": 100352,
+        "base_output_bytes": 1000,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 2204256,
+        "segment_model_MiB": 2.102
+      }
     }
-  ],
-  "xception_8seg_uniform_local": [
-    {
-      "seg": 1,
-      "OUT_bytes": 268203,
-      "IN_bytes": 262808
-    },
-    {
-      "seg": 2,
-      "OUT_bytes": 262808,
-      "IN_bytes": 262808
-    },
-    {
-      "seg": 3,
-      "OUT_bytes": 262808,
-      "IN_bytes": 262808
-    },
-    {
-      "seg": 4,
-      "OUT_bytes": 262808,
-      "IN_bytes": 262808
-    },
-    {
-      "seg": 5,
-      "OUT_bytes": 262808,
-      "IN_bytes": 262808
-    },
-    {
-      "seg": 6,
-      "OUT_bytes": 262808,
-      "IN_bytes": 153600
-    },
-    {
-      "seg": 7,
-      "OUT_bytes": 153600,
-      "IN_bytes": 204800
-    },
-    {
-      "seg": 8,
-      "OUT_bytes": 204800,
-      "IN_bytes": 1000
+  },
+  "xception_8seg_uniform_local": {
+    "segments": {
+      "seg1": {
+        "theory_OUT_bytes": 268203,
+        "theory_IN_bytes": 262808,
+        "base_input_bytes": 268203,
+        "base_output_bytes": 262808,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3400288,
+        "segment_model_MiB": 3.243
+      },
+      "seg2": {
+        "theory_OUT_bytes": 262808,
+        "theory_IN_bytes": 262808,
+        "base_input_bytes": 262808,
+        "base_output_bytes": 262808,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3682912,
+        "segment_model_MiB": 3.512
+      },
+      "seg3": {
+        "theory_OUT_bytes": 262808,
+        "theory_IN_bytes": 262808,
+        "base_input_bytes": 262808,
+        "base_output_bytes": 262808,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3682912,
+        "segment_model_MiB": 3.512
+      },
+      "seg4": {
+        "theory_OUT_bytes": 262808,
+        "theory_IN_bytes": 262808,
+        "base_input_bytes": 262808,
+        "base_output_bytes": 262808,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3682912,
+        "segment_model_MiB": 3.512
+      },
+      "seg5": {
+        "theory_OUT_bytes": 262808,
+        "theory_IN_bytes": 262808,
+        "base_input_bytes": 262808,
+        "base_output_bytes": 262808,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1860192,
+        "segment_model_MiB": 1.774
+      },
+      "seg6": {
+        "theory_OUT_bytes": 262808,
+        "theory_IN_bytes": 153600,
+        "base_input_bytes": 262808,
+        "base_output_bytes": 153600,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3850848,
+        "segment_model_MiB": 3.672
+      },
+      "seg7": {
+        "theory_OUT_bytes": 153600,
+        "theory_IN_bytes": 204800,
+        "base_input_bytes": 153600,
+        "base_output_bytes": 204800,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3281504,
+        "segment_model_MiB": 3.129
+      },
+      "seg8": {
+        "theory_OUT_bytes": 204800,
+        "theory_IN_bytes": 1000,
+        "base_input_bytes": 204800,
+        "base_output_bytes": 1000,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 2204256,
+        "segment_model_MiB": 2.102
+      }
     }
-  ]
+  }
 }
