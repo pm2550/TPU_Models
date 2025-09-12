@@ -92,6 +92,9 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
     # 设置环境变量COUNT=100进行测试（预热改为10次）
     env = os.environ.copy()
     env['COUNT'] = '100'
+    # 添加推理间隔选项，避免长尾IO影响
+    if 'INVOKE_GAP_MS' in os.environ:
+        env['INVOKE_GAP_MS'] = os.environ['INVOKE_GAP_MS']
     
     try:
         if USE_CHAIN_MODE:
