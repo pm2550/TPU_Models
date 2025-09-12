@@ -148,8 +148,8 @@ for i in range(cnt):
     it.set_tensor(inp['index'], x)
     t0=time.clock_gettime(time.CLOCK_BOOTTIME)
     it.invoke()
-    t1=time.clock_gettime(time.CLOCK_BOOTTIME)
     _ = it.get_tensor(it.get_output_details()[0]['index'])  # 触发 TPU 回传
+    t1=time.clock_gettime(time.CLOCK_BOOTTIME)
     spans.append({'begin': t0, 'end': t1})
     # 推理间隔，避免长尾IO影响下次统计
     gap_ms = float(os.environ.get('INVOKE_GAP_MS', '0'))
