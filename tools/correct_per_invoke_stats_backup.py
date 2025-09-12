@@ -180,9 +180,9 @@ def stat_window(pairs, win, usb_ref, bt_ref, epoch_ref=None, extra=0.0, mode: st
                 # 过滤异常小长包
                 if p['len'] < 64 and p['duration'] > 0.002:
                     continue
-                # 临时注释≥1KB过滤进行调试
-                # if p['len'] < 1024:
-                #     continue
+                # 只统计≥1KB的数据传输（实际传输窗口）
+                if p['len'] < 1024:
+                    continue
                 if d == 'Bi':
                     bi += 1
                     binb += p['len']
@@ -361,28 +361,25 @@ def main():
                         break
             autodetect_from_records(overlapped_pairs)
             print(f"使用过滤(窗内重探): DEV={auto_dev}, EP_IN={auto_ep_in}, EP_OUT={auto_ep_out}")
-        # 过滤目标对（DEV/EP）- 修复：尊重自动探测的端点号，不再硬编码 [1,2]
+        # 过滤目标对（DEV/EP）- 修复：允许多个输入端点
         def allow(p):
             if p['dir'] not in ('Bi','Bo'):
                 return False
             if auto_dev is not None and p['dev'] is not None and p['dev'] != auto_dev:
                 return False
-            # 输入端点：若已自动探测到具体端点，则与之匹配；否则不过滤端点
+            # 对于输入端点，允许端点1和端点2（TPU常用多端点输入）
             if p['dir']=='Bi' and auto_ep_in is not None and p['ep'] is not None:
-                if p['ep'] != auto_ep_in:
+                if p['ep'] not in [1, 2]:  # 只允许端点1和2的输入
                     return False
             if p['dir']=='Bo' and auto_ep_out is not None and p['ep'] is not None and p['ep'] != auto_ep_out:
                 return False
             return True
-        # 为每个 URB 选择重叠最大的窗口并分配一次（初次基于扩展窗口，供估计 Δ 使用）
+        # 为每个 URB 选择重叠最大的窗口并分配一次
         for p in pairs:
             if not allow(p):
                 continue
             t0 = p['ts_submit']; t1 = p['ts_complete']
             if p['len'] < 64 and p['duration'] > 0.002:
-                continue
-            # 只统计≥512B的数据传输（实际传输窗口）
-            if p['len'] < 512:
                 continue
             best_i = -1; best_ov = 0.0
             for i,(b0,e0) in enumerate(win_bounds):
@@ -423,48 +420,6 @@ def main():
             global_delta = 0.2
         if global_delta < -0.2:
             global_delta = -0.2
-
-        # 依据 Δ 修正归因：用平移后的原始窗口（可按 extra 轻微扩展）重新分配 URB 到各窗口
-        # 重置计数器
-        for i in range(len(results)):
-            results[i]['Bi'] = 0
-            results[i]['Bo'] = 0
-            results[i]['bytes_in'] = 0
-            results[i]['bytes_out'] = 0
-            in_times[i].clear(); out_times[i].clear()
-            in_urbs[i].clear(); out_urbs[i].clear()
-
-        # 重新构建用于分配的“平移后窗口”边界（带轻微扩展，以涵盖invoke前后的IO）
-        shifted_bounds = []
-        extra_for_assign = max(0.005, args.extra)  # 至少扩展5ms，避免极端对齐误差
-        for (ob0, oe0) in win_bounds_orig:
-            sb0 = ob0 + global_delta - extra_for_assign
-            se0 = oe0 + global_delta + extra_for_assign
-            shifted_bounds.append((sb0, se0))
-
-        # 恢复简单的最大重叠分配：基于“平移后窗口”进行分配
-        for p in pairs:
-            if not allow(p):
-                continue
-            t0 = p['ts_submit']; t1 = p['ts_complete']
-            if p['len'] < 64 and p['duration'] > 0.002:
-                continue
-            if p['len'] < 512:
-                continue
-            best_i = -1; best_ov = 0.0
-            for i,(b0,e0) in enumerate(shifted_bounds):
-                ov = max(0.0, min(e0, t1) - max(b0, t0))
-                if ov > best_ov:
-                    best_ov = ov; best_i = i
-            if best_i < 0 or best_ov <= 0:
-                continue
-            r = results[best_i]
-            if p['dir']=='Bi':
-                r['Bi'] += 1; r['bytes_in'] += (p['len'] or 0); in_times[best_i].append(t1)
-                in_urbs[best_i].append((t0, t1))
-            else:
-                r['Bo'] += 1; r['bytes_out'] += (p['len'] or 0); out_times[best_i].append(t1)
-                out_urbs[best_i].append((t0, t1))
 
         for i,(b0,e0) in enumerate(win_bounds):
             r = results[i]
@@ -525,9 +480,9 @@ def main():
                 t0 = p['ts_submit']; t1 = p['ts_complete']
                 if p['len'] < 64 and p['duration'] > 0.002:
                     continue
-                # 临时注释≥1KB过滤进行调试
-                # if p['len'] < 1024:
-                #     continue
+                # 只统计≥1KB的数据传输（实际传输窗口）
+                if p['len'] < 1024:
+                    continue
                 best_i = -1; best_ov = 0.0
                 for i,(b0,e0) in enumerate(win_bounds):
                     ov = max(0.0, min(e0, t1) - max(b0, t0))
@@ -583,7 +538,7 @@ def main():
     else:
         # 原有逐窗口统计（全包含）
         for i, win in enumerate(iv):
-            seen_ids = None  # 禁用跨窗去重，避免不同invoke窗口URB被误去重
+            seen_ids = set()
             stat = stat_window(pairs, win, usb_ref, bt_ref, epoch_ref, args.extra, args.mode,
                                allow_dev=auto_dev, allow_ep_in=auto_ep_in, allow_ep_out=auto_ep_out,
                                include=args.include, seen_urb_ids=seen_ids)

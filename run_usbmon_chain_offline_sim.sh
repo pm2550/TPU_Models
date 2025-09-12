@@ -144,6 +144,7 @@ for _ in range(count):
             x = np.random.random_sample(inp['shape']).astype(np.float32)
         it.set_tensor(inp['index'], x)
         t0 = now(); it.invoke(); t1 = now()
+        _ = it.get_tensor(it.get_output_details()[0]['index'])  # 触发 TPU 回传
         seg_spans[si].append({'begin': t0, 'end': t1})
 
 for si in range(1,9):

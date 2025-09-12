@@ -334,7 +334,7 @@ def analyze_performance(outdir, model_name, seg_num):
             except Exception:
                 active_analysis_loose = None
 
-        # 跳过第一次，使用严格窗口计算纯invoke（并限制活跃IO不超过invoke时长）
+        # 跳过第一次，使用严格窗口计算纯invoke（使用真并集，不再强制 union<=invoke）
         try:
             per_invoke_strict = (active_analysis_strict or {}).get('per_invoke', [])
             if per_invoke_strict:
@@ -342,8 +342,11 @@ def analyze_performance(outdir, model_name, seg_num):
                 for i, inv in enumerate(per_invoke_strict):
                     if i < len(invoke_times_ms):
                         invoke_time_ms = invoke_times_ms[i]
-                        io_ms = (inv.get('union_active_span_s', 0.0) or 0.0) * 1000.0
-                        io_ms = min(io_ms, invoke_time_ms)
+                        # 优先使用 union_active_s/union_active_span_s 字段
+                        union_s = inv.get('union_active_s', None)
+                        if union_s is None:
+                            union_s = inv.get('union_active_span_s', 0.0)
+                        io_ms = float(union_s or 0.0) * 1000.0
                         pure_invoke_times_ms.append(max(0.0, invoke_time_ms - io_ms))
                 pure_io_times_ms = pure_invoke_times_ms
         except Exception as e:
@@ -378,12 +381,13 @@ def analyze_performance(outdir, model_name, seg_num):
         
         # 读取USB监控IO数据（窗口平均口径，统一 MiB 单位）；改用 tools/correct_per_invoke_stats.py 输出作为权威
         io_stats = {}
+        per_invoke_from_corr = None
         try:
             corr_script = "/home/10210/Desktop/OS/tools/correct_per_invoke_stats.py"
             if not os.path.exists(corr_script):
                 raise FileNotFoundError(corr_script)
             res_corr = subprocess.run([
-                VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete"
+                VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete", "--include", "overlap"
             ], capture_output=True, text=True, check=True)
             txt = res_corr.stdout or ""
             # 优先解析 JSON_SUMMARY
@@ -397,6 +401,13 @@ def analyze_performance(outdir, model_name, seg_num):
                     avg_out_bytes = float(js.get('warm_avg_out_bytes', 0.0) or 0.0)
                 except Exception:
                     avg_in_bytes = avg_out_bytes = 0.0
+            # 解析 JSON_PER_INVOKE（真并集/真交集）
+            mp = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
+            if mp:
+                try:
+                    per_invoke_from_corr = _json.loads(mp.group(1))
+                except Exception:
+                    per_invoke_from_corr = None
             if avg_in_bytes == 0.0 or avg_out_bytes == 0.0:
                 # 兼容旧正则（支持千分位）
                 m_in = _re.search(r"IN:\s*总字节=([\d,]+),\s*平均=([\d.]+)", txt)
@@ -444,19 +455,32 @@ def analyze_performance(outdir, model_name, seg_num):
             io_stats = {'error': f'Failed to compute IO stats (correct_per_invoke_stats): {str(e)}'}
             _avg_in_bytes_for_active = _avg_out_bytes_for_active = 0.0
 
-        # 计算基于活跃IO的平均指标（严格/宽松各一套；速率默认用严格）
+        # 若解析器 per_invoke 可用，则用其真并集重算纯invoke
+        if per_invoke_from_corr and invoke_times_ms:
+            try:
+                pure_invoke_times_ms = []
+                for i in range(min(len(invoke_times_ms), len(per_invoke_from_corr))):
+                    union_s = per_invoke_from_corr[i].get('union_active_s', 0.0) or 0.0
+                    io_ms = float(union_s) * 1000.0
+                    pure_invoke_times_ms.append(max(0.0, invoke_times_ms[i] - io_ms))
+                if pure_invoke_times_ms:
+                    pure_io_times_ms = pure_invoke_times_ms
+            except Exception:
+                pass
+
+        # 计算基于活跃IO的平均指标（严格；速率默认用严格）
         def compute_active_union_avg(per_invoke_list):
             try:
                 if per_invoke_list and len(per_invoke_list) > 1:
                     warm_invokes = per_invoke_list[1:]
                     avg_active_ms = statistics.mean([
-                        (inv.get('union_active_span_s', 0.0) or 0.0) * 1000.0 for inv in warm_invokes
+                        ( (inv.get('union_active_s', None) if inv.get('union_active_s', None) is not None else inv.get('union_active_span_s', 0.0)) or 0.0) * 1000.0 for inv in warm_invokes
                     ]) if warm_invokes else 0.0
                     avg_in_active_ms = statistics.mean([
-                        (inv.get('in_active_span_s', 0.0) or 0.0) * 1000.0 for inv in warm_invokes
+                        ( (inv.get('in_active_s', None) if inv.get('in_active_s', None) is not None else inv.get('in_active_span_s', 0.0)) or 0.0) * 1000.0 for inv in warm_invokes
                     ]) if warm_invokes else 0.0
                     avg_out_active_ms = statistics.mean([
-                        (inv.get('out_active_span_s', 0.0) or 0.0) * 1000.0 for inv in warm_invokes
+                        ( (inv.get('out_active_s', None) if inv.get('out_active_s', None) is not None else inv.get('out_active_span_s', 0.0)) or 0.0) * 1000.0 for inv in warm_invokes
                     ]) if warm_invokes else 0.0
                     avg_in_bytes = statistics.mean([
                         (inv.get('bytes_in', 0) or 0) for inv in warm_invokes
@@ -489,12 +513,47 @@ def analyze_performance(outdir, model_name, seg_num):
 
         # 使用“活跃时间(严格)+简化统计字节”的混合方式，计算活跃IO均值（仅严格）
         active_union_avg_strict = None
-        if active_analysis_strict and isinstance(active_analysis_strict, dict):
+        # 若解析器已给出逐次结果，则优先使用解析器的 per_invoke 进行活跃均值计算
+        if per_invoke_from_corr:
+            try:
+                act = per_invoke_from_corr
+                import statistics as _st
+                def _get(x,k1,k2,default=0.0):
+                    v = x.get(k1, None)
+                    return (v if v is not None else x.get(k2, default))
+                active_ms = [ (_get(x,'union_active_s','union_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]
+                avg_active_ms = _st.mean(active_ms) if active_ms else 0.0
+                avg_in_b = _avg_in_bytes_for_active
+                avg_out_b = _avg_out_bytes_for_active
+                def to_mib(v):
+                    return v / (1024.0 * 1024.0)
+                if avg_active_ms > 0:
+                    in_mib_per_ms = to_mib(avg_in_b) / avg_active_ms
+                    out_mib_per_ms = to_mib(avg_out_b) / avg_active_ms
+                else:
+                    in_mib_per_ms = out_mib_per_ms = 0.0
+                active_union_avg_strict = {
+                    'avg_active_ms': avg_active_ms,
+                    'avg_in_active_ms': _st.mean([ (_get(x,'in_active_s','in_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
+                    'avg_out_active_ms': _st.mean([ (_get(x,'out_active_s','out_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
+                    'avg_bytes_in_per_invoke': avg_in_b,
+                    'avg_bytes_out_per_invoke': avg_out_b,
+                    'in_MiB_per_ms': in_mib_per_ms,
+                    'out_MiB_per_ms': out_mib_per_ms,
+                    'in_MiB_per_s': in_mib_per_ms * 1000.0,
+                    'out_MiB_per_s': out_mib_per_ms * 1000.0,
+                }
+            except Exception as _e:
+                active_union_avg_strict = {'note': f'hybrid_active_union_failed: {_e}'}
+        elif active_analysis_strict and isinstance(active_analysis_strict, dict):
             try:
                 act = active_analysis_strict.get('per_invoke', [])
                 if act:
                     import statistics as _st
-                    active_ms = [ (x.get('union_active_span_s', 0.0) or 0.0) * 1000.0 for x in act ]
+                    def _get(x,k1,k2,default=0.0):
+                        v = x.get(k1, None)
+                        return (v if v is not None else x.get(k2, default))
+                    active_ms = [ (_get(x,'union_active_s','union_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]
                     avg_active_ms = _st.mean(active_ms) if active_ms else 0.0
                     avg_in_b = _avg_in_bytes_for_active
                     avg_out_b = _avg_out_bytes_for_active
@@ -507,8 +566,8 @@ def analyze_performance(outdir, model_name, seg_num):
                         in_mib_per_ms = out_mib_per_ms = 0.0
                     active_union_avg_strict = {
                         'avg_active_ms': avg_active_ms,
-                        'avg_in_active_ms': _st.mean([ (x.get('in_active_span_s', 0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
-                        'avg_out_active_ms': _st.mean([ (x.get('out_active_span_s', 0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
+                        'avg_in_active_ms': _st.mean([ (_get(x,'in_active_s','in_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
+                        'avg_out_active_ms': _st.mean([ (_get(x,'out_active_s','out_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
                         'avg_bytes_in_per_invoke': avg_in_b,
                         'avg_bytes_out_per_invoke': avg_out_b,
                         'in_MiB_per_ms': in_mib_per_ms,

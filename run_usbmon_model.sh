@@ -40,18 +40,14 @@ while time.time()<deadline and ts_usb is None:
                 cols=ln.strip().split()
                 if not cols:
                     continue
-                # 兼容 prepend_epoch: <epoch> <tag> <usec> ...
-                v=None
-                if len(cols) >= 3 and re.fullmatch(r"\d+", cols[2]):
-                    v=float(cols[2])
-                else:
-                    # 回退：扫描首个数字
-                    for tok in cols:
-                        if re.fullmatch(r"\d+(?:\.\d+)?", tok):
-                            v=float(tok); break
-                if v is not None:
-                    ts_usb = v/1e6 if v>1e6 else v
-                    break
+                # prepend_epoch 格式：<epoch> <usbmon_timestamp> <urb_id> <seq_num> <event> ...
+                # 我们需要第二列的 usbmon_timestamp
+                if len(cols) >= 3:
+                    try:
+                        ts_usb = float(cols[1])  # 第二列是原始 usbmon 时间戳
+                        break
+                    except ValueError:
+                        pass
     except FileNotFoundError:
         pass
     time.sleep(0.01)

@@ -182,6 +182,8 @@ def now():
     return time.clock_gettime(time.CLOCK_BOOTTIME)
 
 WARMUP = int(os.environ.get('WARMUP', '10'))
+GAP_MS = float(os.environ.get('STAGE_GAP_MS', '0') or 0)
+GAP_S = GAP_MS / 1000.0
 for _ in range(WARMUP):
     x = x0
     for it in itps:
@@ -194,6 +196,8 @@ for _ in range(WARMUP):
         it.invoke()
         out = it.get_output_details()[0]
         x = it.get_tensor(out['index'])
+        if GAP_S > 0:
+            time.sleep(GAP_S)
 
 # 测量 COUNT 次，每阶段记录 invoke 时间窗口
 seg_spans = {lab: [] for lab in labels}
@@ -210,6 +214,8 @@ for _ in range(count):
         seg_spans[lab].append({'begin': t0, 'end': t1})
         out = it.get_output_details()[0]
         x = it.get_tensor(out['index'])
+        if GAP_S > 0:
+            time.sleep(GAP_S)
 
 # 写出每段 invokes.json（按实际阶段标签）
 for lab in labels:

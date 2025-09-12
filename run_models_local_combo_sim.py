@@ -153,16 +153,52 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
         except Exception:
             pass
 
-        res_corr = subprocess.run([VENV_PY, CORRECT_PER_INVOKE, usbmon_file, merged_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete", "--include", "overlap"], capture_output=True, text=True, check=True)
-        txt = res_corr.stdout or ""
+        # 尝试不同的 --extra（窗口扩展），以避免 seg1 的输入发生在 invoke 之前而被漏记
+        extras_to_try = []
+        try:
+            extras_to_try.append(float(os.environ.get('EXTRA_S', '0.010')))
+        except Exception:
+            extras_to_try.append(0.010)
+        # 进一步加大窗口（针对真实链式，可能存在较大提前量）
+        for v in (0.200, 1.000):
+            if all(abs(v - x) > 1e-6 for x in extras_to_try):
+                extras_to_try.append(v)
+
+        txt = ""
+        chosen_extra = extras_to_try[0]
+        best_total_bytes = 0
+        import re as _re, json as _json
+        seg_label_local = os.path.basename(seg_dir)
+        
+        # 尝试所有窗口扩展，选择捕获数据最多的
+        for _extra in extras_to_try:
+            res_corr = subprocess.run([VENV_PY, CORRECT_PER_INVOKE, usbmon_file, merged_file, time_map_file,
+                                       "--extra", f"{_extra:.3f}", "--mode", "bulk_complete", "--include", "overlap"],
+                                      capture_output=True, text=True, check=True)
+            txt_try = res_corr.stdout or ""
+            # 解析 per-invoke 结果，计算总数据量
+            mj = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt_try, flags=_re.S)
+            if mj:
+                try:
+                    arr_try = _json.loads(mj.group(1))
+                    # 计算所有 invoke 的总 IN+OUT 字节数
+                    total_bytes = sum(float(item.get('bytes_in', 0.0)) + float(item.get('bytes_out', 0.0)) 
+                                    for item in arr_try)
+                    if total_bytes > best_total_bytes:
+                        best_total_bytes = total_bytes
+                        chosen_extra = _extra
+                        txt = txt_try
+                except Exception:
+                    pass
         # 将完整输出保存，便于排错
         try:
             with open(os.path.join(combo_root, "correct_per_invoke_stdout.txt"), 'w') as _fo:
                 _fo.write(txt)
         except Exception:
             pass
+        # 不向终端输出统计详情，保持原始格式
         import re as _re, json as _json
-        # 解析 per-invoke 明细（JSON_PER_INVOKE），按 seg 聚合出本段平均字节与活跃时长（去重后）
+        # 解析 per-invoke 明细（JSON_PER_INVOKE），按 seg 聚合出本段平均字节与活跃时长（去重后，真并集）
         avg_in_bytes = None
         avg_out_bytes = None
         mj = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
@@ -176,12 +212,14 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
                 idxs = [i for i, ss in enumerate(all_spans) if ss.get('seg_label') == seg_label_local]
                 vals_in = [float(arr[i].get('bytes_in', 0.0)) for i in idxs if 0 <= i < len(arr)]
                 vals_out = [float(arr[i].get('bytes_out', 0.0)) for i in idxs if 0 <= i < len(arr)]
-                # 活跃并集（按去重后的URB集合）：近似取 max(in_active_s, out_active_s)
-                # 注：correct_per_invoke_stats 已按URB最大重叠分配到单窗，不会跨窗重复
-                per_union_active_s = [
-                    max(float(arr[i].get('in_active_s', 0.0)), float(arr[i].get('out_active_s', 0.0)))
-                    for i in idxs if 0 <= i < len(arr)
-                ]
+                # 真并集：优先使用 union_active_s，回退到 max(in_active_s,out_active_s)
+                per_union_active_s = []
+                for i in idxs:
+                    if 0 <= i < len(arr):
+                        ua = arr[i].get('union_active_s')
+                        if ua is None:
+                            ua = max(float(arr[i].get('in_active_s', 0.0)), float(arr[i].get('out_active_s', 0.0)))
+                        per_union_active_s.append(float(ua))
                 if vals_in:
                     avg_in_bytes = sum(vals_in)/len(vals_in)
                 if vals_out:
@@ -229,7 +267,7 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
             'avg_bytes_out_per_invoke': overall_avg.get('avg_bytes_out_per_invoke', 0.0),
         }
 
-    # 用分配后的活跃时间重算纯净 invoke
+    # 用分配后的活跃时间（真并集）重算纯净 invoke（不强制 union<=invoke）
     if per_union_active_s:
         pure_ms = [max(0.0, iv - ua*1000.0) for iv, ua in zip(invoke_ms, per_union_active_s)]
     else:
