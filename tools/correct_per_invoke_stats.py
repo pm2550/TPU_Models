@@ -187,19 +187,22 @@ def stat_window(pairs, win, usb_ref, bt_ref, epoch_ref=None, extra=0.0, mode: st
                     bi += 1
                     binb += p['len']
                     in_times.append(p['ts_complete'])
-                    # 记录区间并裁剪到窗口
-                    ss = max(b0, p['ts_submit'])
-                    ee = min(e0, p['ts_complete'])
-                    if ee > ss:
-                        in_intervals.append((ss, ee))
+                    # 检查传输是否与窗口有重叠：[ts_submit, ts_complete] 与 [b0, e0] 重叠
+                    if p['ts_complete'] > b0 and p['ts_submit'] < e0:
+                        ss = max(b0, p['ts_submit'])
+                        ee = min(e0, p['ts_complete'])
+                        if ee > ss:
+                            in_intervals.append((ss, ee))
                 else:
                     bo += 1
                     boutb += p['len']
                     out_times.append(p['ts_complete'])
-                    ss = max(b0, p['ts_submit'])
-                    ee = min(e0, p['ts_complete'])
-                    if ee > ss:
-                        out_intervals.append((ss, ee))
+                    # 检查传输是否与窗口有重叠：[ts_submit, ts_complete] 与 [b0, e0] 重叠
+                    if p['ts_complete'] > b0 and p['ts_submit'] < e0:
+                        ss = max(b0, p['ts_submit'])
+                        ee = min(e0, p['ts_complete'])
+                        if ee > ss:
+                            out_intervals.append((ss, ee))
     else:
         # 兼容旧口径（不推荐）：基于行级别统计
         for r in pairs:
@@ -490,19 +493,38 @@ def main():
                         cur_s, cur_e = s, e
                 total += (cur_e - cur_s)
                 return total
-            # 使用平移后的原始窗口进行裁剪度量
-            sob0 = ob0 + global_delta
-            soe0 = oe0 + global_delta
+            # 使用“平移+扩展后”的窗口进行裁剪度量（真实对齐，包含延后 IO）
+            sob0 = (ob0 + global_delta) - extra_for_assign
+            soe0 = (oe0 + global_delta) + extra_for_assign
+            # 进一步按“最早 OUT 提交、最晚 IN 完成”细化测量窗口
+            rb0, re0 = sob0, soe0
+            if out_urbs[i]:
+                try:
+                    rb0 = min(t0 for (t0, _t1) in out_urbs[i])
+                except Exception:
+                    rb0 = sob0
+            if in_urbs[i]:
+                try:
+                    re0 = max(t1 for (_t0, t1) in in_urbs[i])
+                except Exception:
+                    re0 = soe0
+            # 防御：若估计异常导致区间颠倒，则退回扩展窗口
+            if not (re0 > rb0):
+                rb0, re0 = sob0, soe0
             in_intervals_meas = []
             out_intervals_meas = []
             for (t0,t1) in in_urbs[i]:
-                ss = max(sob0, t0); ee = min(soe0, t1)
-                if ee > ss:
-                    in_intervals_meas.append((ss, ee))
+                # 检查传输是否与窗口有重叠（用细化后的 rb0/re0）
+                if t1 > rb0 and t0 < re0:
+                    ss = max(rb0, t0); ee = min(re0, t1)
+                    if ee > ss:
+                        in_intervals_meas.append((ss, ee))
             for (t0,t1) in out_urbs[i]:
-                ss = max(sob0, t0); ee = min(soe0, t1)
-                if ee > ss:
-                    out_intervals_meas.append((ss, ee))
+                # 检查传输是否与窗口有重叠（用细化后的 rb0/re0）
+                if t1 > rb0 and t0 < re0:
+                    ss = max(rb0, t0); ee = min(re0, t1)
+                    if ee > ss:
+                        out_intervals_meas.append((ss, ee))
             in_len = _merge_len(in_intervals_meas)
             out_len = _merge_len(out_intervals_meas)
             union_len = _merge_len(in_intervals_meas + out_intervals_meas)
@@ -560,19 +582,38 @@ def main():
                     total += (cur_e - cur_s)
                     return total
                 ob0,oe0 = win_bounds_orig[i]
-                sob0 = ob0 + 0.0
-                soe0 = oe0 + 0.0
+                # 兜底路径也采用扩展窗口（使用 args.extra），保证延后 IO 被纳入
+                sob0 = ob0 - args.extra
+                soe0 = oe0 + args.extra
+                # 再按“最早 OUT 提交、最晚 IN 完成”细化
+                rb0, re0 = sob0, soe0
+                if out_urbs[i]:
+                    try:
+                        rb0 = min(t0 for (t0, _t1) in out_urbs[i])
+                    except Exception:
+                        rb0 = sob0
+                if in_urbs[i]:
+                    try:
+                        re0 = max(t1 for (_t0, t1) in in_urbs[i])
+                    except Exception:
+                        re0 = soe0
+                if not (re0 > rb0):
+                    rb0, re0 = sob0, soe0
                 # 兜底路径保持不移位
                 in_intervals_meas = []
                 out_intervals_meas = []
                 for (t0,t1) in in_urbs[i]:
-                    ss = max(sob0, t0); ee = min(soe0, t1)
-                    if ee > ss:
-                        in_intervals_meas.append((ss, ee))
+                    # 检查传输是否与窗口有重叠（用细化后的 rb0/re0）
+                    if t1 > rb0 and t0 < re0:
+                        ss = max(rb0, t0); ee = min(re0, t1)
+                        if ee > ss:
+                            in_intervals_meas.append((ss, ee))
                 for (t0,t1) in out_urbs[i]:
-                    ss = max(sob0, t0); ee = min(soe0, t1)
-                    if ee > ss:
-                        out_intervals_meas.append((ss, ee))
+                    # 检查传输是否与窗口有重叠（用细化后的 rb0/re0）
+                    if t1 > rb0 and t0 < re0:
+                        ss = max(rb0, t0); ee = min(re0, t1)
+                        if ee > ss:
+                            out_intervals_meas.append((ss, ee))
                 in_len = _merge_len(in_intervals_meas)
                 out_len = _merge_len(out_intervals_meas)
                 union_len = _merge_len(in_intervals_meas + out_intervals_meas)
