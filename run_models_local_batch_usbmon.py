@@ -89,9 +89,14 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
     """运行单个分段测试"""
     print(f"=== 测试 {model_name} seg{seg_num} -> {outdir} ===")
     
-    # 设置环境变量COUNT=100进行测试（预热改为10次）
+    # 计数规则：用户期望的 COUNT 仅统计“有效样本”（跳过首帧warm）
+    # 因此实际运行次数 = COUNT + 1（多跑1次作为warm）
     env = os.environ.copy()
-    env['COUNT'] = '100'
+    try:
+        req_count = int(env.get('COUNT', '100'))
+    except Exception:
+        req_count = 100
+    env['COUNT'] = str(max(1, req_count) + 1)
     # 添加推理间隔选项，避免长尾IO影响
     if 'INVOKE_GAP_MS' in os.environ:
         env['INVOKE_GAP_MS'] = os.environ['INVOKE_GAP_MS']
@@ -272,129 +277,86 @@ def analyze_performance(outdir, model_name, seg_num):
         # 读取推理时间数据（需要先读取以获取spans）
         with open(invokes_file) as f:
             invokes_data = json.load(f)
-        
         spans = invokes_data.get('spans', [])
         if not spans:
             return None
-        
-        # 使用正确的逐窗口事件解析方法计算真实重叠（替换有问题的URB配对算法）
-        overlap_script = "/home/10210/Desktop/OS/show_overlap_positions.py"
-        if os.path.exists(overlap_script):
-            try:
-                # 使用逐窗口分析脚本计算真实重叠和活跃时间
-                res_overlap = subprocess.run([
-                    VENV_PY, overlap_script, usbmon_file, invokes_file, time_map_file,
-                    "--start", "1", "--end", "100"  # 覆盖第1次开始（已在采集侧预热）
-                ], capture_output=True, text=True, check=True)
-                
-                # 解析逐窗口分析结果，提取真实的重叠和活跃时间数据
-                overlap_data = parse_overlap_analysis_output(res_overlap.stdout, len(spans))
-                
-                # 生成兼容格式的活跃时间分析结果
-                active_analysis_data = generate_active_analysis_from_overlap(overlap_data, spans)
-                with open(active_analysis_strict_file, 'w') as f:
-                    json.dump(active_analysis_data, f, indent=2)
-                
-                print(f"✓ 使用逐窗口事件解析方法计算真实重叠（已修复URB配对算法问题）")
-                    
-            except Exception as e:
-                print(f"警告：逐窗口重叠分析失败: {e}")
-                # 回退到简化的默认数据
-                active_analysis_data = {"model_name": f"{model_name}_seg{seg_num}", "per_invoke": []}
-        
-        # 使用简化解析器统计严格窗口的字节与速率（统一口径，single/chain 一致）
-        simple_script = "/home/10210/Desktop/OS/analyze_usbmon_simple.py"
-        simple_result = None
-        if os.path.exists(simple_script):
-            try:
-                res_simple = subprocess.run([
-                    "python3", simple_script, usbmon_file, invokes_file, time_map_file
-                ], capture_output=True, text=True, check=True)
-                simple_result = json.loads(res_simple.stdout)
-            except Exception as e:
-                print(f"警告：简化USB统计失败: {e}")
-        
-        # spans已在上面读取，这里不需要重复读取
-        
-        # 计算invoke时间统计
-        invoke_times = [span['end'] - span['begin'] for span in spans]
-        invoke_times_ms = [t * 1000 for t in invoke_times]  # 转换为毫秒
-        
-        # 尝试读取IO活跃时间分析结果
-        pure_io_times_ms = []
-        active_analysis_strict = None
-        active_analysis_loose = None
-        if os.path.exists(active_analysis_strict_file):
-            try:
-                with open(active_analysis_strict_file) as f:
-                    active_analysis_strict = json.load(f)
-            except Exception:
-                active_analysis_strict = None
-        if enable_loose and os.path.exists(active_analysis_loose_file):
-            try:
-                with open(active_analysis_loose_file) as f:
-                    active_analysis_loose = json.load(f)
-            except Exception:
-                active_analysis_loose = None
 
-        # 跳过第一次，使用严格窗口计算纯invoke（使用真并集，不再强制 union<=invoke）
-        try:
-            per_invoke_strict = (active_analysis_strict or {}).get('per_invoke', [])
-            if per_invoke_strict:
-                pure_invoke_times_ms = []
-                for i, inv in enumerate(per_invoke_strict):
-                    if i < len(invoke_times_ms):
-                        invoke_time_ms = invoke_times_ms[i]
-                        # 优先使用 union_active_s/union_active_span_s 字段
-                        union_s = inv.get('union_active_s', None)
-                        if union_s is None:
-                            union_s = inv.get('union_active_span_s', 0.0)
-                        io_ms = float(union_s or 0.0) * 1000.0
-                        pure_invoke_times_ms.append(max(0.0, invoke_time_ms - io_ms))
-                pure_io_times_ms = pure_invoke_times_ms
-        except Exception as e:
-            print(f"警告：计算纯invoke失败: {e}")
-        
-        # 如果没有纯IO时间，使用invoke时间
-        if not pure_io_times_ms:
-            pure_io_times_ms = invoke_times_ms
-        
-        inference_stats = {
-            'count': len(invoke_times_ms),
-            'invoke_times': {
-                'min_ms': min(invoke_times_ms),
-                'max_ms': max(invoke_times_ms),
-                'mean_ms': statistics.mean(invoke_times_ms),
-                'median_ms': statistics.median(invoke_times_ms),
-                'stdev_ms': statistics.stdev(invoke_times_ms) if len(invoke_times_ms) > 1 else 0.0,
-                'all_times_ms': invoke_times_ms,
-                # 保存一次样本：优先第2次（第一帧warm），否则第1次
-                'saved_sample_ms': (invoke_times_ms[1] if len(invoke_times_ms) > 1 else (invoke_times_ms[0] if invoke_times_ms else 0.0))
-            },
-            'pure_invoke_times': {
-                'min_ms': min(pure_io_times_ms) if pure_io_times_ms else 0,
-                'max_ms': max(pure_io_times_ms) if pure_io_times_ms else 0,
-                'mean_ms': statistics.mean(pure_io_times_ms) if pure_io_times_ms else 0,
-                'median_ms': statistics.median(pure_io_times_ms) if pure_io_times_ms else 0,
-                'stdev_ms': statistics.stdev(pure_io_times_ms) if len(pure_io_times_ms) > 1 else 0.0,
-                'all_times_ms': pure_io_times_ms,
-                'saved_sample_ms': (pure_io_times_ms[0] if pure_io_times_ms else 0.0)
+        # 计算推理窗口时间统计
+        inference_stats = {}
+        import statistics as _st
+        warm_invokes = spans[1:] if len(spans) > 1 else spans
+        invoke_times = [span['end'] - span['begin'] for span in spans]
+        invoke_times_ms = [t * 1000.0 for t in invoke_times]
+        pure_invoke_times_ms = None
+        # 如果已重算纯推理时间，则用新值
+        if 'pure_io_times_ms' in locals() and pure_io_times_ms:
+            pure_times = pure_io_times_ms[1:] if len(pure_io_times_ms) > 1 else pure_io_times_ms
+            inference_stats['pure_invoke_times'] = {
+                'mean_ms': _st.mean(pure_times) if pure_times else 0.0,
+                'stdev_ms': _st.stdev(pure_times) if pure_times and len(pure_times) > 1 else 0.0,
+                'all_ms': pure_times
             }
+        # 普通推理窗口时间
+        times = invoke_times_ms[1:] if len(invoke_times_ms) > 1 else invoke_times_ms
+        inference_stats['invoke_times'] = {
+            'mean_ms': _st.mean(times) if times else 0.0,
+            'stdev_ms': _st.stdev(times) if times and len(times) > 1 else 0.0,
+            'all_ms': times
         }
         
-        # 读取USB监控IO数据（窗口平均口径，统一 MiB 单位）；改用 tools/correct_per_invoke_stats.py 输出作为权威
+        # 使用简化解析器统计严格窗口的字节与速率（统一 MiB 单位）；改用 tools/correct_per_invoke_stats.py 输出作为权威
         io_stats = {}
         per_invoke_from_corr = None
         try:
             corr_script = "/home/10210/Desktop/OS/tools/correct_per_invoke_stats.py"
             if not os.path.exists(corr_script):
                 raise FileNotFoundError(corr_script)
-            res_corr = subprocess.run([
-                VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file, "--extra", "0.010", "--mode", "bulk_complete", "--include", "overlap"
-            ], capture_output=True, text=True, check=True)
-            txt = res_corr.stdout or ""
-            # 优先解析 JSON_SUMMARY
+            # 允许通过环境变量配置 EXTRA_S，并提供阶梯重试以捕获早到/晚到 IO
+            extras = []
+            try:
+                extras.append(float(os.environ.get('EXTRA_S', '0.010')))
+            except Exception:
+                extras.append(0.010)
+            for v in (0.200, 1.000):
+                if all(abs(v - x) > 1e-6 for x in extras):
+                    extras.append(v)
+            txt = ""
+            chosen_extra = extras[0]
             import re as _re, json as _json
+            for _extra in extras:
+                res_corr = subprocess.run([
+                    VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file,
+                    "--mode", "bulk_complete", "--include", "overlap",
+                    "--extra", f"{_extra:.3f}"
+                ], capture_output=True, text=True, check=True)
+                txt = res_corr.stdout or ""
+                mp = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
+                if mp:
+                    try:
+                        arr_try = _json.loads(mp.group(1))
+                        # 如果 warm 平均 bytes_in 有值或 seg 内大多数窗口 bytes 有值，就接受该 extra
+                        warm_vals = [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try[1:]] if len(arr_try) > 1 else [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try]
+                        if sum(1 for v in warm_vals if v > 0) >= max(1, int(0.5 * len(warm_vals))):
+                            chosen_extra = _extra
+                            per_invoke_from_corr = arr_try
+                            break
+                    except Exception:
+                        pass
+            # 保存 stdout，便于排错
+            try:
+                with open(os.path.join(outdir, 'correct_per_invoke_stdout.txt'), 'w') as _fo:
+                    _fo.write(txt)
+            except Exception:
+                pass
+            # 若尚未解析成功，再解析一次（不影响 chosen_extra）
+            if per_invoke_from_corr is None:
+                mp = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
+                if mp:
+                    try:
+                        per_invoke_from_corr = _json.loads(mp.group(1))
+                    except Exception:
+                        per_invoke_from_corr = None
+            # 解析 JSON_SUMMARY 获取 warm 平均字节
             mjson = _re.search(r"JSON_SUMMARY:\s*(\{.*\})", txt)
             avg_in_bytes = avg_out_bytes = 0.0
             if mjson:
@@ -404,37 +366,19 @@ def analyze_performance(outdir, model_name, seg_num):
                     avg_out_bytes = float(js.get('warm_avg_out_bytes', 0.0) or 0.0)
                 except Exception:
                     avg_in_bytes = avg_out_bytes = 0.0
-            # 解析 JSON_PER_INVOKE（真并集/真交集）
-            mp = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
-            if mp:
-                try:
-                    per_invoke_from_corr = _json.loads(mp.group(1))
-                except Exception:
-                    per_invoke_from_corr = None
-            if avg_in_bytes == 0.0 or avg_out_bytes == 0.0:
-                # 兼容旧正则（支持千分位）
-                m_in = _re.search(r"IN:\s*总字节=([\d,]+),\s*平均=([\d.]+)", txt)
-                m_out = _re.search(r"OUT:\s*总字节=([\d,]+),\s*平均=([\d.]+)", txt)
-                if m_in and m_out:
-                    try:
-                        avg_in_bytes = float(m_in.group(2).replace(',', ''))
-                        avg_out_bytes = float(m_out.group(2).replace(',', ''))
-                    except Exception:
-                        pass
-                else:
-                    m2 = _re.search(r"平均传输:\s*IN=([\d.]+)MB,\s*OUT=([\d.]+)MB", txt)
-                    if m2:
-                        _in_mib = float(m2.group(1))
-                        _out_mib = float(m2.group(2))
-                        avg_in_bytes = _in_mib * 1024 * 1024.0
-                        avg_out_bytes = _out_mib * 1024 * 1024.0
-            # 计算平均窗口时长（跳过第1次）
+            # 回退解析（历史格式）
+            if avg_in_bytes == 0.0 and avg_out_bytes == 0.0:
+                m2 = _re.search(r"平均传输:\s*IN=([\d.]+)MB,\s*OUT=([\d.]+)MB", txt)
+                if m2:
+                    _in_mib = float(m2.group(1)); _out_mib = float(m2.group(2))
+                    avg_in_bytes = _in_mib * 1024 * 1024.0
+                    avg_out_bytes = _out_mib * 1024 * 1024.0
+            # 窗口均值速率
             all_spans = [(s['end']-s['begin']) for s in spans]
             avg_span_s = (sum(all_spans)/len(all_spans)) if all_spans else 0.0
             to_MiB = lambda b: (b / (1024.0 * 1024.0))
             MiBps_in = (to_MiB(avg_in_bytes) / avg_span_s) if avg_span_s>0 else 0.0
             MiBps_out = (to_MiB(avg_out_bytes) / avg_span_s) if avg_span_s>0 else 0.0
-            # 构造 overall，用平均×次数近似总量
             total_windows = max(1, len(all_spans))
             total_in_bytes = int(avg_in_bytes * total_windows)
             total_out_bytes = int(avg_out_bytes * total_windows)
@@ -456,8 +400,9 @@ def analyze_performance(outdir, model_name, seg_num):
             _avg_out_bytes_for_active = avg_out_bytes
         except Exception as e:
             io_stats = {'error': f'Failed to compute IO stats (correct_per_invoke_stats): {str(e)}'}
-            _avg_in_bytes_for_active = _avg_out_bytes_for_active = 0.0
-
+            per_invoke_from_corr = per_invoke_from_corr  # keep whatever parsed
+            _avg_in_bytes_for_active = 0.0
+            _avg_out_bytes_for_active = 0.0
         # 若解析器 per_invoke 可用，则用其真并集重算纯invoke
         if per_invoke_from_corr and invoke_times_ms:
             try:
