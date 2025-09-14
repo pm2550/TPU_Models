@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """
-分析USB监控数据，计算每次invoke的纯IO活跃时间
-基于usbmon数据计算实际的数据传输活跃时间，而不是invoke的总时间。
+分析USB监控数据，计算每次 invoke 的 IO 活跃时间，并以“IN ∪ OUT 并集”唯一口径扣除得到纯计算时间。
 
-改进：支持窗口扩展（默认 ±10ms，可通过环境变量 ACTIVE_EXPAND_MS 调整），
-用于涵盖 set/get 与 invoke 边界抖动，避免活跃IO被误判为 0。
+窗口定义与对齐：
+- 默认使用“invoke 窗口”进行统计：仅基于 spans 中的 begin/end（忽略 set/get）。
+- 可选时间轴平移：通过 SHIFT_POLICY 将 [begin,end] 整体平移以对齐 usbmon（例如 in_tail_or_out_head）。
+- 窗口扩展：默认允许在 usbmon 轴上对窗口做前后扩展（ACTIVE_EXPAND_MS，默认 10ms）。
+    若要求严格使用 invoke 窗口，请设置 STRICT_INVOKE_WINDOW=1（扩展为 0ms）。
+
+时间度量：
+- OUT（主机->设备）：使用 URB S→C 的并集时长（在窗口内裁剪）；字节数按重叠比例分摊。
+- IN（设备->主机）：使用完成事件 C 的小间隙聚类并集时长（聚类间隙由 CLUSTER_GAP_MS 控制）。
+
+纯计算时间（唯一口径）：
+- 纯计算毫秒 pure_compute_ms = invoke_ms - io_union_both_ms，
+    其中 io_union_both_ms 为“IN 聚簇区间 ∪ OUT URB 区间”的并集时长（去重）。
 """
 
 import json
@@ -64,7 +74,7 @@ def calculate_active_spans(usbmon_records: List[Tuple],
                           invoke_windows: List[Dict], 
                           time_map: Dict,
                           expand_s: float = 0.010) -> List[Dict]:
-    """计算每次invoke的IO活跃时间。
+    """计算每次invoke的IO活跃时间（回退口径，仅用完成C行，避免S/C双计数）。
 
     expand_s: 在转换到 usbmon 时间轴后，对每个窗口做前后扩展（单位：秒）。
     """
@@ -81,18 +91,18 @@ def calculate_active_spans(usbmon_records: List[Tuple],
         win_start = window['begin'] - bt_ref + usb_ref - (expand_s or 0.0)
         win_end = window['end'] - bt_ref + usb_ref + (expand_s or 0.0)
         
-        # 收集窗口内的IO事件
-        in_events = []  # (timestamp, bytes)
-        out_events = []
-        
+        # 收集窗口内的IO事件（仅统计完成C行：Ci/Co）
+        in_events = []  # (timestamp, bytes) — 仅 Ci
+        out_events = [] # 仅 Co
+
         for rec in usbmon_records:
             ts, direction, bytes_count = rec[0], rec[1], rec[2]
             if win_start <= ts <= win_end:
-                if direction in ['Bi', 'Ci']:  # 输入事件
+                if direction == 'Ci':  # 输入完成
                     in_events.append((ts, bytes_count))
-                elif direction in ['Bo', 'Co']:  # 输出事件
+                elif direction == 'Co':  # 输出完成
                     out_events.append((ts, bytes_count))
-        
+
         # 计算活跃时间跨度
         in_active_span = 0.0
         out_active_span = 0.0
@@ -207,7 +217,12 @@ def calculate_active_spans_urbs(usbmon_file: str,
                                 time_map: Dict,
                                 expand_s: float = 0.010,
                                 dev_filter: Optional[int]=None) -> List[Dict]:
-    """基于 URB 配对（S/C 配对）的方式计算活跃时间（更稳健），可按设备号过滤。"""
+    """基于 URB 配对（S/C 配对）的方式计算活跃时间与字节数。
+
+    关键改进：不再仅保留“完全落入窗口”的URB，否则会导致大量漏算，尤其是IN/OUT跨窗时。
+    改为：对与窗口有重叠的URB进行裁剪，并按重叠时长占原URB时长的比例分摊字节数。
+    这样既能稳定计算并集活跃时长（用裁剪后的区间做并集），也能更合理地估算窗口内的字节量，避免回退到逐行统计造成的双计数。
+    """
     usb_ref = time_map.get('usbmon_ref')
     bt_ref = time_map.get('boottime_ref')
     if usb_ref is None or bt_ref is None:
@@ -217,19 +232,39 @@ def calculate_active_spans_urbs(usbmon_file: str,
     out_urbs = parse_urbs_from_file(usbmon_file, ('Bo', 'Co'), dev_filter)
     in_urbs = parse_urbs_from_file(usbmon_file, ('Bi', 'Ci'), dev_filter)
 
-    def filter_full_inside_and_sane(b: float, e: float, urbs: List[Tuple[float, float, int, str, Optional[int]]]):
-        # 仅保留完全落在窗口内的 URB，且过滤“很小长度但很长持续”的异常 URB
-        filtered = []
-        for (s, t, nb, dir_tok, devn) in urbs:
-            if s >= b and t <= e:
-                if not (nb < 64 and (t - s) > 0.002):  # 小于64B且持续>2ms 的忽略
-                    filtered.append((s, t, nb, dir_tok, devn))
-        return filtered
+    def overlap_clip_intervals(
+        b: float,
+        e: float,
+        urbs: List[Tuple[float, float, int, str, Optional[int]]]
+    ) -> Tuple[List[Tuple[float, float]], float]:
+        """返回：
+        - 裁剪到窗口后的时间区间列表 [(cs, ce), ...]
+        - 按重叠时长比例分摊后的字节数之和（float）
 
-    def window_intervals(b: float, e: float, urbs: List[Tuple[float, float, int, str, Optional[int]]]):
-        sane = filter_full_inside_and_sane(b, e, urbs)
-        win = [(s, t) for (s, t, _, _, _) in sane]
-        return win
+        同时过滤明显异常：极小字节但超长持续的URB（疑似控制/错误重试），避免污染统计。
+        """
+        intervals: List[Tuple[float, float]] = []
+        bytes_sum: float = 0.0
+        for (s, t, nb, dir_tok, devn) in urbs:
+            # 无重叠
+            if t <= b or s >= e:
+                continue
+            # 过滤异常URB：小于64B但持续>2ms
+            if nb < 64 and (t - s) > 0.002:
+                continue
+            cs = b if s < b else s
+            ce = e if t > e else t
+            if ce <= cs:
+                continue
+            # 计算按时长占比的字节分摊
+            dur = t - s
+            if dur <= 0:
+                # 无法按比例分摊，保守跳过
+                continue
+            frac = (ce - cs) / dur
+            intervals.append((cs, ce))
+            bytes_sum += float(nb) * max(0.0, min(1.0, frac))
+        return intervals, bytes_sum
 
     def union_length(intervals: List[Tuple[float, float]]) -> float:
         if not intervals:
@@ -252,20 +287,18 @@ def calculate_active_spans_urbs(usbmon_file: str,
         b0 = window['begin'] - bt_ref + usb_ref - (expand_s or 0.0)
         e0 = window['end'] - bt_ref + usb_ref + (expand_s or 0.0)
 
-        # 仅保留完全落入窗口内的 URB，并过滤小包长时异常
-        in_iv = filter_full_inside_and_sane(b0, e0, in_urbs)
-        out_iv = filter_full_inside_and_sane(b0, e0, out_urbs)
-
-        in_intervals = window_intervals(b0, e0, in_iv)
-        out_intervals = window_intervals(b0, e0, out_iv)
+        # 对与窗口有重叠的URB进行裁剪，并按重叠比例估算窗口内字节
+        in_intervals, in_bytes_win = overlap_clip_intervals(b0, e0, in_urbs)
+        out_intervals, out_bytes_win = overlap_clip_intervals(b0, e0, out_urbs)
         all_intervals = in_intervals + out_intervals
 
         in_active = union_length(in_intervals)
         out_active = union_length(out_intervals)
         union_active = union_length(all_intervals)
 
-        total_in_bytes = sum(nb for (_, _, nb, _, _) in in_iv)
-        total_out_bytes = sum(nb for (_, _, nb, _, _) in out_iv)
+        # 使用窗口裁剪后的按比例字节数作为窗口内字节量估计
+        total_in_bytes = int(round(in_bytes_win))
+        total_out_bytes = int(round(out_bytes_win))
 
         # 相对窗口的区间（毫秒）
         in_intervals_ms = [((s - b0) * 1000.0, (t - b0) * 1000.0) for (s, t) in in_intervals]
@@ -279,8 +312,8 @@ def calculate_active_spans_urbs(usbmon_file: str,
             'in_active_span_s': in_active,
             'out_active_span_s': out_active,
             'union_active_span_s': union_active,
-            'in_events_count': len(in_iv),
-            'out_events_count': len(out_iv),
+            'in_events_count': len(in_intervals),
+            'out_events_count': len(out_intervals),
             'in_intervals_ms': in_intervals_ms,
             'out_intervals_ms': out_intervals_ms,
         })
@@ -449,7 +482,7 @@ def main():
                 if ts is not None and direction is not None:
                     usbmon_records.append((ts, direction, bytes_count, dev_num))
         
-        # 计算活跃时间（支持通过环境变量 ACTIVE_EXPAND_MS 设置扩展毫秒，默认 10ms）
+    # 计算活跃时间（支持通过环境变量 ACTIVE_EXPAND_MS 设置扩展毫秒，默认 10ms）
         invoke_windows = invokes_data.get('spans', [])
         # 读取对齐策略参数
         shift_policy = os.environ.get('SHIFT_POLICY', 'none').strip()
@@ -478,6 +511,10 @@ def main():
             expand_ms = float(expand_ms_env) if expand_ms_env else 10.0
         except Exception:
             expand_ms = 10.0
+        # 若要求严格使用 invoke 窗口（忽略任何扩展），则强制将扩展设为 0
+        strict_invoke_window = os.environ.get('STRICT_INVOKE_WINDOW', '0').strip().lower() in ('1','true','yes','on')
+        if strict_invoke_window:
+            expand_ms = 0.0
         # 构建 C 完成事件时间表用于对齐与聚类
         cin_times, cout_times = build_c_event_times(usbmon_file)
 
@@ -495,7 +532,7 @@ def main():
             d = shift_deltas[i] if i < len(shift_deltas) else 0.0
             invoke_windows_shifted.append({'begin': w['begin'] + d, 'end': w['end'] + d})
 
-        # 优先使用更稳健的 URB 并集时长计算；若无效或事件计数为0，则回退到行级事件 min-max 估计
+    # 优先使用更稳健的 URB 并集时长计算；若无效或事件计数为0，则回退到行级事件 min-max 估计
         try:
             # 可选设备过滤：USBMON_DEV 设置时启用
             dev_filter = None
@@ -519,39 +556,75 @@ def main():
         except Exception:
             active_spans = calculate_active_spans(usbmon_records, invoke_windows_shifted, time_map, expand_s=expand_ms/1000.0)
 
-        # 追加基于 C 完成事件聚类的 IN/OUT 并集与纯推理（只扣 IN）以及平移信息
+        # 追加基于 C 完成事件聚类的 IN/OUT 并集与纯推理（只扣 IN）以及平移/窗口信息
         usb_ref = time_map.get('usbmon_ref')
         bt_ref = time_map.get('boottime_ref')
         gap_s = max(0.0, cluster_gap_ms/1000.0)
         min_span_s = max(0.0, min_cluster_us/1e6)
         enriched = []
+        
+        def union_length_ms(intervals_ms):
+            """计算以毫秒为单位的区间并集长度。intervals_ms: List[(start_ms,end_ms)]."""
+            if not intervals_ms:
+                return 0.0
+            iv = sorted(intervals_ms)
+            cs, ce = iv[0]
+            total = 0.0
+            for s, t in iv[1:]:
+                if s <= ce:
+                    if t > ce:
+                        ce = t
+                else:
+                    total += (ce - cs)
+                    cs, ce = s, t
+            total += (ce - cs)
+            return total
+
         for i, rec in enumerate(active_spans):
             w = invoke_windows[i]
             d = shift_deltas[i] if i < len(shift_deltas) else 0.0
             # shifted absolute window in usbmon time
             b = (w['begin'] + d) - bt_ref + usb_ref - (expand_ms/1000.0 if expand_ms else 0.0)
             e = (w['end']   + d) - bt_ref + usb_ref + (expand_ms/1000.0 if expand_ms else 0.0)
-            in_u_s, in_k, _ = cluster_union_within_window(cin_times, b, e, gap_s, min_span_s)
-            out_u_s, out_k, _ = cluster_union_within_window(cout_times, b, e, gap_s, min_span_s)
+            in_u_s, in_k, in_clusters = cluster_union_within_window(cin_times, b, e, gap_s, min_span_s)
+            out_u_s, out_k, out_clusters = cluster_union_within_window(cout_times, b, e, gap_s, min_span_s)
             inv_ms = (w['end'] - w['begin']) * 1000.0
-            # 只扣 IN 的纯推理（与当前对齐策略一致）
-            pure_ms = inv_ms - (in_u_s * 1000.0)
+            # OUT 的 URB 并集时长（毫秒）来自上游 URB 解析结果
+            out_urb_ms = (rec.get('out_active_span_s') or 0.0) * 1000.0
+            # IN聚簇区间（ms，相对窗口）
+            in_cluster_intervals_ms = [((s - b) * 1000.0, (t - b) * 1000.0) for (s, t) in in_clusters]
+            # OUT 使用 URB 区间（已相对窗口，毫秒）
+            out_urb_intervals_ms = rec.get('out_intervals_ms') or []
+            # 并集扣除口径（去重）
+            io_union_both_ms = union_length_ms(in_cluster_intervals_ms + out_urb_intervals_ms)
+            # 唯一口径：纯计算时间
+            pure_compute_ms = inv_ms - io_union_both_ms
             rec['shift_policy'] = shift_policy
             rec['shift_ms'] = d * 1000.0
             rec['cluster_gap_ms'] = cluster_gap_ms
+            rec['window_source'] = 'invoke'  # 明确标注：仅使用 invoke 窗口（忽略 set/get）
+            rec['window_expand_ms'] = expand_ms
             rec['in_union_cluster_ms'] = in_u_s * 1000.0
-            rec['out_union_cluster_ms'] = out_u_s * 1000.0
-            rec['pure_ms_in_only'] = pure_ms
+            rec['out_union_urb_ms'] = out_urb_ms
+            rec['io_union_both_ms'] = io_union_both_ms
+            rec['pure_compute_ms'] = pure_compute_ms
             rec['in_clusters'] = in_k
             rec['out_clusters'] = out_k
             enriched.append(rec)
         active_spans = enriched
         
-        # 输出结果
+        # 输出结果（附带窗口定义元信息）
         result = {
             'model_name': invokes_data.get('name', 'unknown'),
             'total_invokes': len(active_spans),
-            'per_invoke': active_spans
+            'per_invoke': active_spans,
+            'window_meta': {
+                'source': 'invoke',
+                'strict_invoke_window': strict_invoke_window,
+                'active_expand_ms': expand_ms,
+                'shift_policy': shift_policy,
+                'cluster_gap_ms': cluster_gap_ms
+            }
         }
         
         print(json.dumps(result, ensure_ascii=False, indent=2))
