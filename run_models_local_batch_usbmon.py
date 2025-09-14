@@ -83,6 +83,12 @@ def find_models():
         else:
             print(f"跳过：模型目录不存在 {model_dir}")
     
+    # 环境变量过滤：ONLY_MODEL/ONLY_MODELS=逗号分隔的精确模型名
+    only_models_env = os.environ.get('ONLY_MODEL') or os.environ.get('ONLY_MODELS')
+    if only_models_env:
+        wanted = [m.strip() for m in only_models_env.split(',') if m.strip()]
+        models = [m for m in models if m in wanted]
+        print(f"仅测试模型: {', '.join(models)}")
     return models
 
 def run_segment_test(model_name, seg_num, model_file, bus, outdir):
@@ -311,37 +317,48 @@ def analyze_performance(outdir, model_name, seg_num):
             corr_script = "/home/10210/Desktop/OS/tools/correct_per_invoke_stats.py"
             if not os.path.exists(corr_script):
                 raise FileNotFoundError(corr_script)
-            # 允许通过环境变量配置 EXTRA_S，并提供阶梯重试以捕获早到/晚到 IO
+            # 优先严格窗口(full)且不扩展(extra=0)，必要时再小幅放宽
             extras = []
             try:
-                extras.append(float(os.environ.get('EXTRA_S', '0.010')))
+                extras.append(float(os.environ.get('EXTRA_S', '0.000')))
             except Exception:
-                extras.append(0.010)
-            for v in (0.200, 1.000):
+                extras.append(0.000)
+            for v in (0.005, 0.010):
                 if all(abs(v - x) > 1e-6 for x in extras):
                     extras.append(v)
             txt = ""
             chosen_extra = extras[0]
             import re as _re, json as _json
+            # 预计算每个窗口的时长(含warm)用于基本合理性校验
+            _spans_s = [(s['end']-s['begin']) for s in spans]
+            _avg_span = (sum(_spans_s)/len(_spans_s)) if _spans_s else 0.0
             for _extra in extras:
                 res_corr = subprocess.run([
                     VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file,
-                    "--mode", "bulk_complete", "--include", "overlap",
+                    "--mode", "bulk_complete", "--include", "full",
                     "--extra", f"{_extra:.3f}"
                 ], capture_output=True, text=True, check=True)
                 txt = res_corr.stdout or ""
                 mp = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
-                if mp:
-                    try:
-                        arr_try = _json.loads(mp.group(1))
-                        # 如果 warm 平均 bytes_in 有值或 seg 内大多数窗口 bytes 有值，就接受该 extra
-                        warm_vals = [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try[1:]] if len(arr_try) > 1 else [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try]
-                        if sum(1 for v in warm_vals if v > 0) >= max(1, int(0.5 * len(warm_vals))):
-                            chosen_extra = _extra
-                            per_invoke_from_corr = arr_try
-                            break
-                    except Exception:
-                        pass
+                if not mp:
+                    continue
+                try:
+                    arr_try = _json.loads(mp.group(1))
+                except Exception:
+                    continue
+                # 接受条件：至少一半warm窗口有字节，且 union_active 不显著超过窗口
+                warm_vals = [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try[1:]] if len(arr_try) > 1 else [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try]
+                ok_bytes = sum(1 for v in warm_vals if v > 0) >= max(1, int(0.5 * len(warm_vals)))
+                try:
+                    unions = [float(x.get('union_active_s') or 0.0) for x in arr_try]
+                    # 容忍极小浮点误差：union 不应大于窗口均值的 110%
+                    ok_union = (max(unions[1:], default=0.0) <= (_avg_span * 1.10 + 1e-6)) if _avg_span > 0 else True
+                except Exception:
+                    ok_union = True
+                if ok_bytes and ok_union:
+                    chosen_extra = _extra
+                    per_invoke_from_corr = arr_try
+                    break
             # 保存 stdout，便于排错
             try:
                 with open(os.path.join(outdir, 'correct_per_invoke_stdout.txt'), 'w') as _fo:
@@ -398,6 +415,46 @@ def analyze_performance(outdir, model_name, seg_num):
             # 暂存，供活跃窗口计速回退使用
             _avg_in_bytes_for_active = avg_in_bytes
             _avg_out_bytes_for_active = avg_out_bytes
+
+            # 若 unionActive 明显大于窗口，触发一次 overlap 回退以剪裁到窗口内
+            def _max_union_vs_span(_arr):
+                try:
+                    u = [float(x.get('union_active_s') or 0.0) for x in _arr]
+                    return max(u[1:], default=0.0)
+                except Exception:
+                    return 0.0
+            max_union = _max_union_vs_span(per_invoke_from_corr or [])
+            if per_invoke_from_corr and avg_span_s>0 and max_union > avg_span_s*1.10:
+                try:
+                    res_corr2 = subprocess.run([
+                        VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file,
+                        "--mode", "bulk_complete", "--include", "overlap",
+                        "--extra", "0.000"
+                    ], capture_output=True, text=True, check=True)
+                    txt2 = res_corr2.stdout or ""
+                    mp2 = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt2, flags=_re.S)
+                    if mp2:
+                        per_invoke_from_corr = _json.loads(mp2.group(1))
+                        # 使用 overlap 的 JSON_SUMMARY 更新均值
+                        mjson2 = _re.search(r"JSON_SUMMARY:\s*(\{.*\})", txt2)
+                        if mjson2:
+                            js2 = _json.loads(mjson2.group(1))
+                            avg_in_bytes = float(js2.get('warm_avg_in_bytes', avg_in_bytes) or avg_in_bytes)
+                            avg_out_bytes = float(js2.get('warm_avg_out_bytes', avg_out_bytes) or avg_out_bytes)
+                            MiBps_in = (to_MiB(avg_in_bytes) / avg_span_s) if avg_span_s>0 else 0.0
+                            MiBps_out = (to_MiB(avg_out_bytes) / avg_span_s) if avg_span_s>0 else 0.0
+                            total_in_bytes = int(avg_in_bytes * total_windows)
+                            total_out_bytes = int(avg_out_bytes * total_windows)
+                            io_stats['strict_window']['overall_avg'].update({
+                                'bytes_in': total_in_bytes,
+                                'bytes_out': total_out_bytes,
+                                'MiBps_in': MiBps_in,
+                                'MiBps_out': MiBps_out,
+                                'avg_bytes_in_per_invoke': avg_in_bytes,
+                                'avg_bytes_out_per_invoke': avg_out_bytes,
+                            })
+                except Exception:
+                    pass
         except Exception as e:
             io_stats = {'error': f'Failed to compute IO stats (correct_per_invoke_stats): {str(e)}'}
             per_invoke_from_corr = per_invoke_from_corr  # keep whatever parsed
@@ -675,6 +732,11 @@ def generate_batch_summary(results_base):
 
 def main():
     """主函数"""
+    # 确保输出按行刷新，便于通过 tail 实时查看
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
     print("==========================================")
     print("开始批量测试 models_local 中的所有模型")
     print("==========================================")
@@ -705,8 +767,34 @@ def main():
         model_results = os.path.join(results_base, model_name)
         os.makedirs(model_results, exist_ok=True)
         
-        # 测试每个分段（seg1-seg8）
-        for seg_num in range(1, 9):
+        # 解析分段过滤：ONLY_SEG/ONLY_SEGS 支持 "1" 或 "1,3,5" 或 "2-4"
+        seg_list = list(range(1, 9))
+        only_segs_env = os.environ.get('ONLY_SEG') or os.environ.get('ONLY_SEGS')
+        if only_segs_env:
+            toks = [t.strip() for t in only_segs_env.split(',') if t.strip()]
+            segs = []
+            for t in toks:
+                if '-' in t:
+                    a,b = t.split('-',1)
+                    try:
+                        a = int(a); b = int(b)
+                        if a <= b:
+                            segs.extend(list(range(max(1,a), min(8,b)+1)))
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        v = int(t)
+                        if 1 <= v <= 8:
+                            segs.append(v)
+                    except Exception:
+                        pass
+            if segs:
+                seg_list = sorted(set(segs))
+            print(f"仅测试分段: {seg_list}")
+
+        # 测试每个分段（按过滤结果）
+        for seg_num in seg_list:
             model_file = os.path.join(model_dir, f"seg{seg_num}_int8_edgetpu.tflite")
             outdir = os.path.join(model_results, f"seg{seg_num}")
             

@@ -138,19 +138,61 @@ try:
 except Exception:
     warm=0
 for _ in range(max(0, warm)):
-    it.set_tensor(inp['index'], x); it.invoke(); _ = it.get_tensor(it.get_output_details()[0]['index'])
+    it.set_tensor(inp['index'], x)
+    it.invoke()
+    _ = it.get_tensor(it.get_output_details()[0]['index'])
 spans=[]
+# 结果消费策略：
+# - 读取输出张量并计算一个轻量校验和，避免底层延迟传输/融合优化
+# - 可选将结果写入临时文件（环境变量 WRITE_OUT=1 开启）
+write_out = os.environ.get('WRITE_OUT','0') == '1'
+out_path = os.environ.get('WRITE_OUT_PATH','') or '/tmp/edgetpu_out.bin'
 try:
     cnt=int(os.environ.get('COUNT','10'))
 except Exception:
     cnt=10
 for i in range(cnt):
+    # 记录 set/invoke/get 的细分时间戳（CLOCK_BOOTTIME）
+    # 可选：每次轻微修改输入，避免底层对相同输入做缓存/去重（开启: MUTATE_INPUT=1）
+    if os.environ.get('MUTATE_INPUT','0')=='1':
+        try:
+            # 对第一个元素做一次轻量按位异或，代价极小
+            x.flat[0] = np.bitwise_xor(x.flat[0], np.array(i & 0x7, dtype=x.dtype))
+        except Exception:
+            pass
+    # set
+    t_set0=time.clock_gettime(time.CLOCK_BOOTTIME)
     it.set_tensor(inp['index'], x)
+    t_set1=time.clock_gettime(time.CLOCK_BOOTTIME)
+    # invoke
     t0=time.clock_gettime(time.CLOCK_BOOTTIME)
     it.invoke()
-    _ = it.get_tensor(it.get_output_details()[0]['index'])  # 触发 TPU 回传
     t1=time.clock_gettime(time.CLOCK_BOOTTIME)
-    spans.append({'begin': t0, 'end': t1})
+    # get 并强制消费
+    t_get0=time.clock_gettime(time.CLOCK_BOOTTIME)
+    out_info = it.get_output_details()[0]
+    out = it.get_tensor(out_info['index'])
+    # 轻量计算（校验和），避免优化跳过读取
+    checksum = int(np.sum(out) % 2**32)
+    t_get1=time.clock_gettime(time.CLOCK_BOOTTIME)
+    if write_out:
+        try:
+            # 附加写入，避免频繁覆盖
+            with open(out_path, 'ab') as f:
+                f.write(out.tobytes())
+        except Exception:
+            pass
+    spans.append({
+        'begin': t0,
+        'end': t1,
+        'set_begin': t_set0,
+        'set_end': t_set1,
+        'get_begin': t_get0,
+        'get_end': t_get1,
+        'checksum': checksum,
+        'out_shape': tuple(out.shape),
+        'out_dtype': str(out.dtype),
+    })
     # 推理间隔，避免长尾IO影响下次统计
     gap_ms = float(os.environ.get('INVOKE_GAP_MS', '0'))
     if gap_ms > 0:
