@@ -288,6 +288,142 @@ def calculate_active_spans_urbs(usbmon_file: str,
     return results
 
 
+def build_c_event_times(usbmon_file: str) -> Tuple[List[float], List[float]]:
+    """Parse usbmon.txt and return completion (C) timestamps for IN and OUT.
+    Accept both Bi/Ci as IN, Bo/Co as OUT on C lines.
+    """
+    re_dir = re.compile(r"([CB][io]):(\d+):(\d+):(\d+)")
+    cin: List[float] = []
+    cout: List[float] = []
+    try:
+        with open(usbmon_file, 'r', errors='ignore') as f:
+            for ln in f:
+                parts = ln.split()
+                if len(parts) < 3:
+                    continue
+                sc = parts[2]
+                if sc != 'C':
+                    continue
+                try:
+                    ts = float(parts[1])
+                    ts = ts / 1e6 if ts > 1e6 else ts
+                except Exception:
+                    continue
+                m = re_dir.search(ln)
+                if not m:
+                    continue
+                tok = m.group(1)
+                if tok.startswith('Bi') or tok.startswith('Ci'):
+                    cin.append(ts)
+                elif tok.startswith('Bo') or tok.startswith('Co'):
+                    cout.append(ts)
+    except FileNotFoundError:
+        pass
+    cin.sort(); cout.sort()
+    return cin, cout
+
+
+def compute_shift_deltas_per_invoke(
+    invokes: List[Dict],
+    time_map: Dict,
+    cin_times: List[float],
+    cout_times: List[float],
+    policy: str,
+    tail_ms: float,
+    head_ms: float,
+    max_shift_ms: float,
+) -> List[float]:
+    """Compute per-invoke shift delta (seconds) per policy.
+
+    Policies:
+    - 'none': all zeros
+    - 'in_tail': align so t1->last IN within (t1, t1+tail]
+    - 'in_tail_or_out_head': prefer in_tail; if absent or too large, use out_head
+    - 'out_head': align so t0->first OUT within [t0, t0+head]
+    """
+    usb_ref = time_map.get('usbmon_ref')
+    bt_ref = time_map.get('boottime_ref')
+    if usb_ref is None or bt_ref is None:
+        return [0.0] * len(invokes)
+
+    tail_s = max(0.0, (tail_ms or 0.0) / 1000.0)
+    head_s = max(0.0, (head_ms or 0.0) / 1000.0)
+    max_s  = max(0.0, (max_shift_ms or 0.0) / 1000.0)
+
+    deltas: List[float] = []
+    for i, w in enumerate(invokes):
+        t0 = usb_ref + (w['begin'] - bt_ref)
+        t1 = usb_ref + (w['end'] - bt_ref)
+        di = 0.0
+        reason = 'none'
+
+        def find_last_in_after_t1() -> Optional[float]:
+            # binary search windows (simple linear scan is fine for small lists)
+            lo = t1
+            hi = t1 + tail_s
+            # find last cin in (t1, hi]
+            # use reversed traversal with early break
+            for ts in reversed(cin_times):
+                if ts <= lo:
+                    break
+                if ts <= hi:
+                    return ts
+            return None
+
+        def find_first_out_after_t0() -> Optional[float]:
+            lo = t0
+            hi = t0 + head_s
+            for ts in cout_times:
+                if ts < lo:
+                    continue
+                if ts <= hi:
+                    return ts
+                break
+            return None
+
+        if policy == 'in_tail' or policy == 'in_tail_or_out_head':
+            ts_in = find_last_in_after_t1()
+            if ts_in is not None:
+                di = ts_in - t1
+                reason = 'in_tail'
+        if (policy == 'out_head') or (policy == 'in_tail_or_out_head' and reason != 'in_tail'):
+            ts_out = find_first_out_after_t0()
+            if ts_out is not None:
+                di = ts_out - t0
+                reason = 'out_head'
+
+        # clamp unreasonable shifts
+        if di < 0.0 or di > max_s:
+            di = 0.0
+            reason = 'none'
+
+        deltas.append(di)
+    return deltas
+
+
+def cluster_union_within_window(times: List[float], w_begin: float, w_end: float, gap_s: float, min_span_s: float) -> Tuple[float, int, List[Tuple[float, float]]]:
+    """Cluster event times within [w_begin, w_end] and return (union_len_s, clusters_count, clusters).
+    Each cluster span is max(last-first, min_span_s). Events must already be absolute timestamps.
+    """
+    ev = [ts for ts in times if w_begin <= ts <= w_end]
+    if not ev:
+        return 0.0, 0, []
+    clusters: List[Tuple[float, float]] = []
+    cs = ev[0]
+    ce = ev[0]
+    for ts in ev[1:]:
+        if ts - ce <= gap_s:
+            ce = ts
+        else:
+            clusters.append((cs, ce))
+            cs = ce = ts
+    clusters.append((cs, ce))
+    total = 0.0
+    for s, t in clusters:
+        total += max(t - s, min_span_s)
+    return total, len(clusters), clusters
+
+
 def main():
     if len(sys.argv) != 4:
         print("用法: python analyze_usbmon_active.py <usbmon.txt> <invokes.json> <time_map.json>")
@@ -315,11 +451,50 @@ def main():
         
         # 计算活跃时间（支持通过环境变量 ACTIVE_EXPAND_MS 设置扩展毫秒，默认 10ms）
         invoke_windows = invokes_data.get('spans', [])
+        # 读取对齐策略参数
+        shift_policy = os.environ.get('SHIFT_POLICY', 'none').strip()
+        try:
+            search_tail_ms = float(os.environ.get('SEARCH_TAIL_MS', '20'))
+        except Exception:
+            search_tail_ms = 20.0
+        try:
+            search_head_ms = float(os.environ.get('SEARCH_HEAD_MS', '10'))
+        except Exception:
+            search_head_ms = 10.0
+        try:
+            max_shift_ms = float(os.environ.get('MAX_SHIFT_MS', '30'))
+        except Exception:
+            max_shift_ms = 30.0
+        try:
+            cluster_gap_ms = float(os.environ.get('CLUSTER_GAP_MS', '0.1'))
+        except Exception:
+            cluster_gap_ms = 0.1
+        try:
+            min_cluster_us = float(os.environ.get('MIN_CLUSTER_US', '1'))
+        except Exception:
+            min_cluster_us = 1.0
         try:
             expand_ms_env = os.environ.get('ACTIVE_EXPAND_MS')
             expand_ms = float(expand_ms_env) if expand_ms_env else 10.0
         except Exception:
             expand_ms = 10.0
+        # 构建 C 完成事件时间表用于对齐与聚类
+        cin_times, cout_times = build_c_event_times(usbmon_file)
+
+        # 计算每次 invoke 的平移量（秒）
+        if shift_policy not in ('none', 'in_tail', 'out_head', 'in_tail_or_out_head'):
+            shift_policy = 'none'
+        shift_deltas = compute_shift_deltas_per_invoke(
+            invoke_windows, time_map, cin_times, cout_times,
+            shift_policy, search_tail_ms, search_head_ms, max_shift_ms
+        )
+
+        # 生成平移后的窗口
+        invoke_windows_shifted = []
+        for i, w in enumerate(invoke_windows):
+            d = shift_deltas[i] if i < len(shift_deltas) else 0.0
+            invoke_windows_shifted.append({'begin': w['begin'] + d, 'end': w['end'] + d})
+
         # 优先使用更稳健的 URB 并集时长计算；若无效或事件计数为0，则回退到行级事件 min-max 估计
         try:
             # 可选设备过滤：USBMON_DEV 设置时启用
@@ -329,7 +504,7 @@ def main():
                 dev_filter = int(dev_env) if dev_env else None
             except Exception:
                 dev_filter = None
-            active_spans = calculate_active_spans_urbs(usbmon_file, invoke_windows, time_map, expand_s=expand_ms/1000.0, dev_filter=dev_filter)
+            active_spans = calculate_active_spans_urbs(usbmon_file, invoke_windows_shifted, time_map, expand_s=expand_ms/1000.0, dev_filter=dev_filter)
             def spans_have_meaningful_bytes(spans):
                 warm = spans[1:] if len(spans) > 1 else spans
                 total_bytes = sum((s.get('bytes_in', 0) or 0) + (s.get('bytes_out', 0) or 0) for s in warm)
@@ -340,9 +515,37 @@ def main():
             if not active_spans or not spans_have_meaningful_bytes(active_spans):
                 if dev_filter is not None:
                     usbmon_records = [r for r in usbmon_records if r[3] == dev_filter]
-                active_spans = calculate_active_spans(usbmon_records, invoke_windows, time_map, expand_s=expand_ms/1000.0)
+                active_spans = calculate_active_spans(usbmon_records, invoke_windows_shifted, time_map, expand_s=expand_ms/1000.0)
         except Exception:
-            active_spans = calculate_active_spans(usbmon_records, invoke_windows, time_map, expand_s=expand_ms/1000.0)
+            active_spans = calculate_active_spans(usbmon_records, invoke_windows_shifted, time_map, expand_s=expand_ms/1000.0)
+
+        # 追加基于 C 完成事件聚类的 IN/OUT 并集与纯推理（只扣 IN）以及平移信息
+        usb_ref = time_map.get('usbmon_ref')
+        bt_ref = time_map.get('boottime_ref')
+        gap_s = max(0.0, cluster_gap_ms/1000.0)
+        min_span_s = max(0.0, min_cluster_us/1e6)
+        enriched = []
+        for i, rec in enumerate(active_spans):
+            w = invoke_windows[i]
+            d = shift_deltas[i] if i < len(shift_deltas) else 0.0
+            # shifted absolute window in usbmon time
+            b = (w['begin'] + d) - bt_ref + usb_ref - (expand_ms/1000.0 if expand_ms else 0.0)
+            e = (w['end']   + d) - bt_ref + usb_ref + (expand_ms/1000.0 if expand_ms else 0.0)
+            in_u_s, in_k, _ = cluster_union_within_window(cin_times, b, e, gap_s, min_span_s)
+            out_u_s, out_k, _ = cluster_union_within_window(cout_times, b, e, gap_s, min_span_s)
+            inv_ms = (w['end'] - w['begin']) * 1000.0
+            # 只扣 IN 的纯推理（与当前对齐策略一致）
+            pure_ms = inv_ms - (in_u_s * 1000.0)
+            rec['shift_policy'] = shift_policy
+            rec['shift_ms'] = d * 1000.0
+            rec['cluster_gap_ms'] = cluster_gap_ms
+            rec['in_union_cluster_ms'] = in_u_s * 1000.0
+            rec['out_union_cluster_ms'] = out_u_s * 1000.0
+            rec['pure_ms_in_only'] = pure_ms
+            rec['in_clusters'] = in_k
+            rec['out_clusters'] = out_k
+            enriched.append(rec)
+        active_spans = enriched
         
         # 输出结果
         result = {
