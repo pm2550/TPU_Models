@@ -9,15 +9,16 @@
 
 时间度量：
 - OUT（主机->设备）：使用 URB S→C 的并集时长（在窗口内裁剪）；字节数按重叠比例分摊。
-- IN（设备->主机）：使用完成事件 C 的小间隙聚类并集时长（聚类间隙由 CLUSTER_GAP_MS 控制）。
+- IN（设备->主机）：混合口径——若该 URB 的提交 S 在窗口内，则用 URB S→C 区间（裁剪后）计入；
+    对于窗口内的 C 而其对应 S 不在窗口内的，则用 C 完成时间按小间隙聚类（由 CLUSTER_GAP_MS 控制）。
 
 纯计算时间：
-- pure_compute_ms = invoke_ms - io_union_both_ms（推荐口径，扣 IN 聚簇 ∪ OUT URB 的并集）。
-- pure_ms_in_only = invoke_ms - in_union_cluster_ms（仅扣 IN，可作为流式口径参考）。
+- pure_compute_ms = invoke_ms - io_union_both_ms（推荐口径，扣 IN 混合 ∪ OUT URB 的并集）。
+- pure_ms_in_only = invoke_ms - in_union_cluster_ms（仅扣 IN 的 C 聚簇，可作为流式口径参考）。
 
 可选 off-chip 校正（实验特性）：
-- 若设置了 OFFCHIP_THEORY_OUT_BYTES 和 OFFCHIP_OUT_MIBPS，则给出 pure_compute_offchip_adj_ms，
-    其中会按 (avg_out_bytes - theory_out_bytes)/OUT_MIBPS 折算成时间并加回，避免把设备等待误扣为 IO。
+- 若设置了 OFFCHIP_IN_THEORY_MIBPS（或兼容变量 OFFCHIP_IN_MIBPS），
+    则计算 Δt = bytes_in/当前IN速率 − bytes_in/理论IN速率，并把 max(0, Δt) 以毫秒加回 pure_compute_ms，得到 pure_compute_offchip_adj_ms。
 """
 
 import json
@@ -889,7 +890,7 @@ def main():
             total += (ce - cs)
             return total
 
-        # 可选 off-chip 调整：通过环境变量注入理论 OUT 字节与均速
+    # 可选 off-chip 调整：通过环境变量注入理论 IN 字节与均速
         def _env_float(name, default=None):
             v = os.environ.get(name)
             if v is None:
@@ -899,8 +900,10 @@ def main():
             except Exception:
                 return default
 
-        theory_out_bytes = _env_float('OFFCHIP_THEORY_OUT_BYTES', None)
-        out_mibps = _env_float('OFFCHIP_OUT_MIBPS', None)
+        # 理论 IN 速率（MiB/s）：优先 OFFCHIP_IN_THEORY_MIBPS，兼容 OFFCHIP_IN_MIBPS
+        theory_in_mibps = _env_float('OFFCHIP_IN_THEORY_MIBPS', None)
+        if theory_in_mibps is None:
+            theory_in_mibps = _env_float('OFFCHIP_IN_MIBPS', None)
 
         for i, rec in enumerate(active_spans):
             raw_w = invoke_windows[i]
@@ -918,14 +921,17 @@ def main():
             out_urb_ms = (rec.get('out_active_span_s') or 0.0) * 1000.0
             # IN聚簇区间（ms，相对窗口）
             in_cluster_intervals_ms = [((s - b) * 1000.0, (t - b) * 1000.0) for (s, t) in in_clusters]
+            # IN混合区间（ms，相对窗口）：URB(S∈window)裁剪 + C聚簇（calculate_active_spans_urbs 已输出）
+            in_hybrid_intervals_ms = rec.get('in_intervals_ms') or []
             # OUT 使用 URB 区间（已相对窗口，毫秒）
             out_urb_intervals_ms = rec.get('out_intervals_ms') or []
-            # 并集扣除口径（去重）
-            io_union_both_ms = union_length_ms(in_cluster_intervals_ms + out_urb_intervals_ms)
-            # 纯计算时间（推荐）
+            # 并集扣除口径（去重）：IN(混合) ∪ OUT(URB)
+            io_union_both_ms = union_length_ms(in_hybrid_intervals_ms + out_urb_intervals_ms)
+            # 诊断与标准化输出：IN/OUT/Union 并集时长
+            in_union_hybrid_ms = union_length_ms(in_hybrid_intervals_ms)
+            out_union_ms = union_length_ms(out_urb_intervals_ms)
+            # 纯计算（唯一口径）
             pure_compute_ms = inv_ms - io_union_both_ms
-            # 仅扣 IN（参考）
-            pure_in_only_ms = inv_ms - (in_u_s * 1000.0)
 
             # 诊断：绝对窗口、IN 最后 C
             try:
@@ -950,13 +956,31 @@ def main():
                 rec['tail_shrink_ms'] = (plans[i].get('tail_shrink_s') or 0.0) * 1000.0
                 rec['align_reason'] = plans[i].get('reason')
 
-            rec['in_union_cluster_ms'] = in_u_s * 1000.0
-            rec['out_union_urb_ms'] = out_urb_ms
+            rec['in_union_cluster_ms'] = in_u_s * 1000.0  # 参考
+            rec['in_union_hybrid_ms'] = in_union_hybrid_ms  # 诊断
+            rec['out_union_urb_ms'] = out_urb_ms  # 诊断
+            # 标准化字段
+            rec['in_union_ms'] = in_union_hybrid_ms
+            rec['out_union_ms'] = out_union_ms
+            rec['union_ms'] = io_union_both_ms
+            rec['pure_ms'] = pure_compute_ms
+            # 兼容保留（主口径）
             rec['io_union_both_ms'] = io_union_both_ms
             rec['pure_compute_ms'] = pure_compute_ms
-            rec['pure_ms_in_only'] = pure_in_only_ms
             rec['in_clusters'] = in_k
             rec['out_clusters'] = out_k
+
+            # 计算当前 IN/OUT 速率（MiB/s），基于各自并集时长与字节数
+            try:
+                in_s = (rec.get('in_union_ms') or 0.0) / 1000.0
+                out_s = (rec.get('out_union_ms') or 0.0) / 1000.0
+                bin_bytes = float(rec.get('bytes_in', 0) or 0)
+                bout_bytes = float(rec.get('bytes_out', 0) or 0)
+                rec['in_speed_mibps'] = (bin_bytes / (1024.0 * 1024.0)) / in_s if in_s > 0 else None
+                rec['out_speed_mibps'] = (bout_bytes / (1024.0 * 1024.0)) / out_s if out_s > 0 else None
+            except Exception:
+                rec['in_speed_mibps'] = None
+                rec['out_speed_mibps'] = None
 
             # Cross-segment diagnostics: IN carry-in/outside and delays
             # 1) Delay from t1 to first IN completion in next window region
@@ -989,13 +1013,18 @@ def main():
             except Exception:
                 rec['in_carry_from_prev_ms'] = None
 
-            # off-chip 调整（可选）
-            if theory_out_bytes is not None and out_mibps is not None and out_mibps > 0:
+            # off-chip 调整（可选）：给定理论 IN 速率，按 bytes_in/当前速率 − bytes_in/理论速率 的非负差值加回
+            if theory_in_mibps is not None and theory_in_mibps > 0:
                 try:
-                    actual_out_bytes = float(rec.get('bytes_out', 0) or 0)
-                    extra_bytes = max(0.0, actual_out_bytes - theory_out_bytes)
-                    extra_s = (extra_bytes / (out_mibps * 1024.0 * 1024.0)) if extra_bytes > 0 else 0.0
-                    rec['pure_compute_offchip_adj_ms'] = pure_compute_ms + (extra_s * 1000.0)
+                    cur_mibps = rec.get('in_speed_mibps')
+                    if cur_mibps and cur_mibps > 0:
+                        miB_in = (float(rec.get('bytes_in', 0) or 0)) / (1024.0 * 1024.0)
+                        t_cur = miB_in / cur_mibps
+                        t_th  = miB_in / theory_in_mibps
+                        delta_ms = max(0.0, (t_cur - t_th) * 1000.0)
+                        rec['pure_compute_offchip_adj_ms'] = pure_compute_ms + delta_ms
+                    else:
+                        rec['pure_compute_offchip_adj_ms'] = pure_compute_ms
                 except Exception:
                     rec['pure_compute_offchip_adj_ms'] = pure_compute_ms
             enriched.append(rec)
