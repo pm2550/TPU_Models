@@ -15,6 +15,7 @@ import json
 import glob
 import subprocess
 import statistics
+import argparse
 from pathlib import Path
 
 # 配置路径
@@ -147,6 +148,26 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
                 str(bus),  # 确保bus是字符串
                 cap_dur
             ], env=env, check=True)
+            # 映射失败则回退使用 0u（所有总线）再试一次
+            try:
+                tm_path = os.path.join(outdir, 'time_map.json')
+                tm_ok = False
+                if os.path.exists(tm_path):
+                    with open(tm_path) as _f:
+                        tmj = json.load(_f)
+                    tm_ok = (tmj.get('usbmon_ref') is not None) and (tmj.get('boottime_ref') is not None)
+                if not tm_ok:
+                    print("time_map 未就绪，回退到 usbmon 0u 重新采集一次…")
+                    result = subprocess.run([
+                        CAPTURE_SCRIPT,
+                        model_file,
+                        f"{model_name}_seg{seg_num}",
+                        outdir,
+                        '0',
+                        cap_dur
+                    ], env=env, check=True)
+            except Exception as _e:
+                print(f"回退重试检查失败: {_e}")
         
         print(f"测试完成: {model_name} seg{seg_num}")
         return True
@@ -286,6 +307,15 @@ def analyze_performance(outdir, model_name, seg_num):
         spans = invokes_data.get('spans', [])
         if not spans:
             return None
+
+        # 预载可选的外部活跃分析结果（若存在）以避免 NameError
+        active_analysis_strict = None
+        try:
+            if os.path.exists(active_analysis_strict_file):
+                with open(active_analysis_strict_file) as _f:
+                    active_analysis_strict = json.load(_f)
+        except Exception:
+            active_analysis_strict = None
 
         # 计算推理窗口时间统计
         inference_stats = {}
@@ -738,25 +768,129 @@ def main():
     except Exception:
         pass
     print("==========================================")
-    print("开始批量测试 models_local 中的所有模型")
+    print("开始批量测试 models_local 中的所有模型 或 单模型目录")
     print("==========================================")
+
+    # CLI：支持单模型目录与自定义输出目录
+    parser = argparse.ArgumentParser(description='models_local 批量/单模型 usbmon 采集与分析')
+    parser.add_argument('--model-dir', dest='single_model_dir', default=None,
+                        help='单模型目录（包含 seg*.tflite，例如 seg0.tflite、seg1.tflite）')
+    parser.add_argument('--outdir', dest='single_outdir', default=None,
+                        help='自定义输出根目录（将创建 segX 子目录）')
+    parser.add_argument('--model-name', dest='single_model_name', default=None,
+                        help='单模型名称标签（用于结果标注，默认取目录名）')
+    parser.add_argument('--segs', dest='single_segs', default=None,
+                        help='仅测试的分段列表，例如 "0-3" 或 "0,1,2,3"；留空则自动扫描 seg*.tflite')
+    args, _ = parser.parse_known_args()
     
     # 检查依赖
     check_dependencies()
-    
-    # 创建结果目录（按模式分目录，避免覆盖）
-    results_base = get_results_base()
-    os.makedirs(results_base, exist_ok=True)
-    
+
     # 获取USB总线号
     bus = get_usb_bus()
     print(f"使用 USB 总线: {bus}")
-    
+
+    # 单模型自定义模式
+    if args.single_model_dir and args.single_outdir:
+        single_dir = os.path.abspath(args.single_model_dir)
+        out_root = os.path.abspath(args.single_outdir)
+        model_name = args.single_model_name or os.path.basename(single_dir.rstrip('/'))
+
+        # 解析 seg 列表：优先 --segs，否则扫描 seg*.tflite
+        seg_list = []
+        if args.single_segs:
+            toks = [t.strip() for t in args.single_segs.split(',') if t.strip()]
+            for t in toks:
+                if '-' in t:
+                    a, b = t.split('-', 1)
+                    try:
+                        a = int(a); b = int(b)
+                        if a <= b:
+                            seg_list.extend(list(range(a, b + 1)))
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        seg_list.append(int(t))
+                    except Exception:
+                        pass
+            seg_list = sorted(set(seg_list))
+        else:
+            for p in glob.glob(os.path.join(single_dir, 'seg*.tflite')):
+                base = os.path.basename(p)
+                m = None
+                try:
+                    # 支持 seg{num}.tflite 或 seg{num}_*.tflite
+                    m = [int(''.join(ch for ch in base.split('.')[0] if ch.isdigit()))]
+                except Exception:
+                    m = None
+                if m:
+                    seg_list.extend(m)
+            seg_list = sorted(set(seg_list))
+
+        if not seg_list:
+            print(f"未找到分段文件：{single_dir}/seg*.tflite")
+            sys.exit(1)
+
+        print(f"单模型模式: {model_name}")
+        print(f"模型目录: {single_dir}")
+        print(f"输出目录: {out_root}")
+        print(f"分段: {seg_list}")
+
+        os.makedirs(out_root, exist_ok=True)
+        models = [model_name]
+
+        for seg_num in seg_list:
+            # 支持 seg{n}.tflite 或 seg{n}_*.tflite（优先精确匹配）
+            candidates = [
+                os.path.join(single_dir, f"seg{seg_num}.tflite")
+            ] + sorted(glob.glob(os.path.join(single_dir, f"seg{seg_num}_*.tflite")))
+            model_file = next((p for p in candidates if os.path.exists(p)), None)
+            outdir = os.path.join(out_root, f"seg{seg_num}")
+
+            if not model_file:
+                print(f"跳过：模型文件不存在 seg{seg_num}（{single_dir}）")
+                continue
+
+            os.makedirs(outdir, exist_ok=True)
+            print(f"=== 测试 {model_name} seg{seg_num} -> {outdir} ===")
+            if run_segment_test(model_name, seg_num, model_file, bus, outdir):
+                analyze_performance(outdir, model_name, seg_num)
+
+        # 生成简单摘要
+        print(f"=== 生成 {model_name} 简要摘要（通配 seg*） ===")
+        # 复用批量摘要生成但遍历 seg* 目录
+        segments_data = {}
+        for seg_path in sorted(glob.glob(os.path.join(out_root, 'seg*'))):
+            perf_file = os.path.join(seg_path, 'performance_summary.json')
+            seg_key = os.path.basename(seg_path)
+            if os.path.exists(perf_file):
+                try:
+                    with open(perf_file) as f:
+                        seg_data = json.load(f)
+                    segments_data[seg_key] = seg_data
+                except Exception as e:
+                    segments_data[seg_key] = {'error': str(e)}
+        model_summary = {
+            'model_name': model_name,
+            'segments': list(segments_data.keys()),
+        }
+        with open(os.path.join(out_root, 'model_summary.json'), 'w') as f:
+            json.dump(model_summary, f, indent=2, ensure_ascii=False)
+
+        print(f"单模型完成，结果在: {out_root}")
+        return
+
+    # 批量模式（原始逻辑）
+    # 创建结果目录（按模式分目录，避免覆盖）
+    results_base = get_results_base()
+    os.makedirs(results_base, exist_ok=True)
+
     # 查找所有模型
     models = find_models()
     print(f"找到 {len(models)} 个模型: {', '.join(models)}")
     print()
-    
+
     # 遍历每个模型
     for model_name in models:
         print("=" * 50)
