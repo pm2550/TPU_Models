@@ -241,11 +241,75 @@ def calculate_active_spans_urbs(usbmon_file: str,
     out_urbs = parse_urbs_from_file(usbmon_file, ('Bo', 'Co'), dev_filter)
     in_urbs = parse_urbs_from_file(usbmon_file, ('Bi', 'Ci'), dev_filter)
 
+    # 事件时间序列（不绑定配对），用于 span 的“窗口内第一个 S 与最后一个 C”逻辑
+    # 注：这里不做小包过滤，严格按照事件时间取首 S/尾 C。
+    try:
+        from bisect import bisect_left, bisect_right
+    except Exception:
+        bisect_left = None
+        bisect_right = None
+    sin_times, sout_times = build_submit_event_times(usbmon_file)
+    cin_all, cout_all = build_c_event_times(usbmon_file)
+
     # small packet exclusion threshold (bytes). Default 64.
     try:
         min_urb_bytes = int(float(os.environ.get('MIN_URB_BYTES', '64')))
     except Exception:
         min_urb_bytes = 64
+
+    # 为 span 端点选择准备：按字节阈值过滤后的“逐行事件”时间（不做URB配对）
+    re_dir = re.compile(r"([CB][io]):(\d+):(\d+):(\d+)")
+    sin_big: List[float] = []
+    sout_big: List[float] = []
+    cin_big: List[float] = []
+    cout_big: List[float] = []
+    try:
+        with open(usbmon_file, 'r', errors='ignore') as f:
+            for ln in f:
+                parts = ln.split()
+                if len(parts) < 3:
+                    continue
+                sc = parts[2]
+                try:
+                    ts = float(parts[1])
+                    ts = ts / 1e6 if ts > 1e6 else ts
+                except Exception:
+                    continue
+                m = re_dir.search(ln)
+                if not m:
+                    continue
+                tok = m.group(1)
+                # 字节数解析（兼容 len= / # bytes）
+                nbytes = 0
+                dir_idx = None
+                for i_tok, tok_str in enumerate(parts):
+                    if re.match(r'^[CB][io]:\d+:', tok_str):
+                        dir_idx = i_tok
+                        break
+                if dir_idx is not None and dir_idx + 2 < len(parts):
+                    try:
+                        nbytes = int(parts[dir_idx + 2])
+                    except Exception:
+                        nbytes = 0
+                if nbytes == 0:
+                    m2 = re.search(r"#\s*(\d+)", ln)
+                    if m2:
+                        nbytes = int(m2.group(1))
+                if (nbytes or 0) < min_urb_bytes:
+                    continue
+                if sc == 'S':
+                    if tok.startswith('Bi'):
+                        sin_big.append(ts)
+                    elif tok.startswith('Bo'):
+                        sout_big.append(ts)
+                elif sc == 'C':
+                    if tok.startswith('Bi') or tok.startswith('Ci'):
+                        cin_big.append(ts)
+                    elif tok.startswith('Bo') or tok.startswith('Co'):
+                        cout_big.append(ts)
+    except FileNotFoundError:
+        pass
+    sin_big.sort(); sout_big.sort(); cin_big.sort(); cout_big.sort()
 
     def overlap_clip_intervals(
         b: float,
@@ -388,34 +452,85 @@ def calculate_active_spans_urbs(usbmon_file: str,
         out_intervals_ms = [((s - b0) * 1000.0, (t - b0) * 1000.0) for (s, t) in out_intervals]
         # 确保即便字节为0也保留并输出 URB 区间，供并集使用
 
-        # 方向内 span（首=Submit(S)，尾=Complete(C)），限定在窗口内；若缺任一端则记为0
-        def first_submit_within(b: float, e: float, urbs_list):
-            first_s = None
-            for (s, t, nb, d, dv) in urbs_list:
-                if (nb or 0) < min_urb_bytes:
+    # 方向内 span（首=窗口内第一个 Submit(S)，尾=窗口内最后一个 Complete(C)）
+        def first_s_in_range(times: List[float], b: float, e: float) -> Optional[float]:
+            if not times:
+                return None
+            if 'bisect_left' in globals() and bisect_left is not None:
+                i = bisect_left(times, b)
+                if i < len(times) and times[i] <= e:
+                    return times[i]
+                return None
+            # 退化线性查找
+            first = None
+            for ts in times:
+                if ts < b:
                     continue
-                if b <= s <= e:
-                    if first_s is None or s < first_s:
-                        first_s = s
-            return first_s
+                if ts > e:
+                    break
+                first = ts
+                break
+            return first
 
-        def last_complete_within(b: float, e: float, urbs_list):
-            last_c = None
-            for (s, t, nb, d, dv) in urbs_list:
-                if (nb or 0) < min_urb_bytes:
+        def last_c_in_range(times: List[float], b: float, e: float) -> Optional[float]:
+            if not times:
+                return None
+            if 'bisect_right' in globals() and bisect_right is not None:
+                j = bisect_right(times, e) - 1
+                if j >= 0 and times[j] >= b:
+                    return times[j]
+                return None
+            # 退化线性查找（反向）
+            last = None
+            for ts in reversed(times):
+                if ts > e:
                     continue
-                if b <= t <= e:
-                    if last_c is None or t > last_c:
-                        last_c = t
-            return last_c
+                if ts < b:
+                    break
+                last = ts
+                break
+            return last
 
-        in_first_s = first_submit_within(b0, e0, in_urbs)
-        in_last_c  = last_complete_within(b0, e0, in_urbs)
-        out_first_s = first_submit_within(b0, e0, out_urbs)
-        out_last_c  = last_complete_within(b0, e0, out_urbs)
+        # 可选严格口径：要求“第一个 S 的 C 也在窗口内，最后一个 C 的 S 也在窗口内”（以 URB 配对判断），并应用小包过滤
+        strict_pair = os.environ.get('SPAN_STRICT_PAIR', '0').strip().lower() in ('1','true','yes','on')
 
-        in_span_sc_ms = ((in_last_c - in_first_s) * 1000.0) if (in_first_s is not None and in_last_c is not None and in_last_c >= in_first_s) else 0.0
-        out_span_sc_ms = ((out_last_c - out_first_s) * 1000.0) if (out_first_s is not None and out_last_c is not None and out_last_c >= out_first_s) else 0.0
+        if strict_pair:
+            def first_s_with_paired_c_in(b: float, e: float, urbs_list):
+                s_min = None
+                for (s, t, nb, d, dv) in urbs_list:
+                    if s is None or t is None:
+                        continue
+                    if (nb or 0) < min_urb_bytes:
+                        continue
+                    if b <= s <= e and b <= t <= e:
+                        if s_min is None or s < s_min:
+                            s_min = s
+                return s_min
+            def last_c_with_paired_s_in(b: float, e: float, urbs_list):
+                t_max = None
+                for (s, t, nb, d, dv) in urbs_list:
+                    if s is None or t is None:
+                        continue
+                    if (nb or 0) < min_urb_bytes:
+                        continue
+                    if b <= s <= e and b <= t <= e:
+                        if t_max is None or t > t_max:
+                            t_max = t
+                return t_max
+
+            in_first_s = first_s_with_paired_c_in(b0, e0, in_urbs)
+            in_last_c  = last_c_with_paired_s_in(b0, e0, in_urbs)
+            out_first_s = first_s_with_paired_c_in(b0, e0, out_urbs)
+            out_last_c  = last_c_with_paired_s_in(b0, e0, out_urbs)
+        else:
+            # IN/OUT 分别取：窗口内第一个大包 S 与最后一个大包 C（逐行事件，无配对约束）
+            in_first_s = first_s_in_range(sin_big, b0, e0)
+            in_last_c  = last_c_in_range(cin_big, b0, e0)
+            out_first_s = first_s_in_range(sout_big, b0, e0)
+            out_last_c  = last_c_in_range(cout_big, b0, e0)
+
+        in_span_sc_ms = ((in_last_c - in_first_s) * 1000.0) if (in_first_s is not None and in_last_c is not None and (in_last_c - in_first_s) >= 0.0) else 0.0
+        out_span_sc_ms = ((out_last_c - out_first_s) * 1000.0) if (out_first_s is not None and out_last_c is not None and (out_last_c - out_first_s) >= 0.0) else 0.0
 
         results.append({
                 'invoke_index': i,
@@ -921,6 +1036,23 @@ def main():
             total += (ce - cs)
             return total
 
+        def merge_intervals_with_gap_ms(intervals_ms, bridge_ms: float):
+            """在毫秒时间轴上合并区间：若相邻区间间隙 <= bridge_ms，则视为连续合并。"""
+            if not intervals_ms:
+                return []
+            iv = sorted(intervals_ms)
+            merged = []
+            cs, ce = iv[0]
+            for s, t in iv[1:]:
+                if s - ce <= bridge_ms:
+                    if t > ce:
+                        ce = t
+                else:
+                    merged.append((cs, ce))
+                    cs, ce = s, t
+            merged.append((cs, ce))
+            return merged
+
     # 可选 off-chip 调整：通过环境变量注入理论 IN 字节与均速
         def _env_float(name, default=None):
             v = os.environ.get(name)
@@ -935,6 +1067,18 @@ def main():
         theory_in_mibps = _env_float('OFFCHIP_IN_THEORY_MIBPS', None)
         if theory_in_mibps is None:
             theory_in_mibps = _env_float('OFFCHIP_IN_MIBPS', None)
+        # 可选开关：仅当 OFFCHIP_ENABLE 为真时启用默认值（避免对所有模型强制校正）
+        offchip_enable = (os.environ.get('OFFCHIP_ENABLE', '0').strip().lower() in ('1','true','yes','on'))
+        if offchip_enable and theory_in_mibps is None:
+            # 支持以 MiB/ms 提供默认或自定义（统一 MiB 单位），默认 0.0164 MiB/ms => 16.4 MiB/s
+            per_ms = _env_float('OFFCHIP_IN_THEORY_MIB_PER_MS', 0.0164)
+            theory_in_mibps = per_ms * 1000.0
+
+        # 可选：在并集口径上桥接小间隙（毫秒）。例如 0.1 表示 <=0.1ms 的空隙视为连续
+        try:
+            union_gap_bridge_ms = float(os.environ.get('UNION_GAP_BRIDGE_MS', '0'))
+        except Exception:
+            union_gap_bridge_ms = 0.0
 
         for i, rec in enumerate(active_spans):
             raw_w = invoke_windows[i]
@@ -958,6 +1102,17 @@ def main():
             out_urb_intervals_ms = rec.get('out_intervals_ms') or []
             # 并集扣除口径（去重）：IN(混合) ∪ OUT(URB)
             io_union_both_ms = union_length_ms(in_hybrid_intervals_ms + out_urb_intervals_ms)
+            # 可选：桥接小间隙后的并集
+            if union_gap_bridge_ms and union_gap_bridge_ms > 0:
+                in_br_ms_intervals = merge_intervals_with_gap_ms(in_hybrid_intervals_ms, union_gap_bridge_ms)
+                out_br_ms_intervals = merge_intervals_with_gap_ms(out_urb_intervals_ms, union_gap_bridge_ms)
+                union_bridged_ms = union_length_ms(in_br_ms_intervals + out_br_ms_intervals)
+                in_union_bridged_ms = union_length_ms(in_br_ms_intervals)
+                out_union_bridged_ms = union_length_ms(out_br_ms_intervals)
+            else:
+                in_union_bridged_ms = None
+                out_union_bridged_ms = None
+                union_bridged_ms = None
             # 诊断与标准化输出：IN/OUT/Union 并集时长
             in_union_hybrid_ms = union_length_ms(in_hybrid_intervals_ms)
             out_union_ms = union_length_ms(out_urb_intervals_ms)
@@ -1001,6 +1156,23 @@ def main():
             rec['in_clusters'] = in_k
             rec['out_clusters'] = out_k
 
+            # 若开启桥接，输出桥接后的口径与基于桥接的速率与pure
+            if union_gap_bridge_ms and union_gap_bridge_ms > 0:
+                rec['in_union_bridged_ms'] = in_union_bridged_ms
+                rec['out_union_bridged_ms'] = out_union_bridged_ms
+                rec['union_bridged_ms'] = union_bridged_ms
+                rec['pure_bridged_ms'] = (inv_ms - union_bridged_ms) if (union_bridged_ms is not None) else None
+                try:
+                    in_s_b = (in_union_bridged_ms or 0.0) / 1000.0
+                    out_s_b = (out_union_bridged_ms or 0.0) / 1000.0
+                    bin_bytes = float(rec.get('bytes_in', 0) or 0)
+                    bout_bytes = float(rec.get('bytes_out', 0) or 0)
+                    rec['in_speed_bridged_mibps'] = (bin_bytes / (1024.0 * 1024.0)) / in_s_b if in_s_b > 0 else None
+                    rec['out_speed_bridged_mibps'] = (bout_bytes / (1024.0 * 1024.0)) / out_s_b if out_s_b > 0 else None
+                except Exception:
+                    rec['in_speed_bridged_mibps'] = None
+                    rec['out_speed_bridged_mibps'] = None
+
             # 计算当前 IN/OUT 速率（MiB/s），基于各自并集时长与字节数
             try:
                 in_s = (rec.get('in_union_ms') or 0.0) / 1000.0
@@ -1025,6 +1197,35 @@ def main():
             except Exception:
                 rec['in_speed_span_mibps'] = None
                 rec['out_speed_span_mibps'] = None
+
+            # On-chip 假设下的 span 口径：把 OUT 与 IN 的方向内 S→C 跨度相加视为 IO（通常两者不重叠）
+            try:
+                in_span_ms = float(rec.get('in_span_sc_ms') or 0.0)
+                out_span_ms = float(rec.get('out_span_sc_ms') or 0.0)
+                io_span_sum_ms = max(0.0, in_span_ms) + max(0.0, out_span_ms)
+                # 纯推理时间（span 口径）
+                pure_span_sum_ms = inv_ms - io_span_sum_ms
+                if pure_span_sum_ms < 0:
+                    pure_span_sum_ms = 0.0
+                rec['io_span_sum_ms'] = io_span_sum_ms
+                rec['pure_span_sum_ms'] = pure_span_sum_ms
+            except Exception:
+                rec['io_span_sum_ms'] = None
+                rec['pure_span_sum_ms'] = None
+
+            # 主口径选择：默认使用 span（简洁有效）；可选 'union' | 'bridged' | 'span'/'span_sum'
+            primary_mode = os.environ.get('PRIMARY_IO_MODE', 'span').strip().lower()
+            rec['union_primary_mode'] = primary_mode
+            try:
+                if primary_mode in ('span', 'span_sum') and rec.get('io_span_sum_ms') is not None:
+                    # 覆盖主输出
+                    rec['union_ms'] = rec['io_span_sum_ms']
+                    rec['pure_ms'] = rec['pure_span_sum_ms']
+                elif primary_mode == 'bridged' and rec.get('union_bridged_ms') is not None:
+                    rec['union_ms'] = rec['union_bridged_ms']
+                    rec['pure_ms'] = rec.get('pure_bridged_ms')
+            except Exception:
+                pass
 
             # Cross-segment diagnostics: IN carry-in/outside and delays
             # 1) Delay from t1 to first IN completion in next window region
@@ -1058,9 +1259,10 @@ def main():
                 rec['in_carry_from_prev_ms'] = None
 
             # off-chip 调整（可选）：给定理论 IN 速率，按 bytes_in/当前速率 − bytes_in/理论速率 的非负差值加回
+            # 当前速率优先采用 span 口径（MiB/s），统一 MiB 单位
             if theory_in_mibps is not None and theory_in_mibps > 0:
                 try:
-                    cur_mibps = rec.get('in_speed_mibps')
+                    cur_mibps = rec.get('in_speed_span_mibps') or rec.get('in_speed_mibps')
                     if cur_mibps and cur_mibps > 0:
                         miB_in = (float(rec.get('bytes_in', 0) or 0)) / (1024.0 * 1024.0)
                         t_cur = miB_in / cur_mibps
