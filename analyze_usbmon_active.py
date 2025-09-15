@@ -388,6 +388,35 @@ def calculate_active_spans_urbs(usbmon_file: str,
         out_intervals_ms = [((s - b0) * 1000.0, (t - b0) * 1000.0) for (s, t) in out_intervals]
         # 确保即便字节为0也保留并输出 URB 区间，供并集使用
 
+        # 方向内 span（首=Submit(S)，尾=Complete(C)），限定在窗口内；若缺任一端则记为0
+        def first_submit_within(b: float, e: float, urbs_list):
+            first_s = None
+            for (s, t, nb, d, dv) in urbs_list:
+                if (nb or 0) < min_urb_bytes:
+                    continue
+                if b <= s <= e:
+                    if first_s is None or s < first_s:
+                        first_s = s
+            return first_s
+
+        def last_complete_within(b: float, e: float, urbs_list):
+            last_c = None
+            for (s, t, nb, d, dv) in urbs_list:
+                if (nb or 0) < min_urb_bytes:
+                    continue
+                if b <= t <= e:
+                    if last_c is None or t > last_c:
+                        last_c = t
+            return last_c
+
+        in_first_s = first_submit_within(b0, e0, in_urbs)
+        in_last_c  = last_complete_within(b0, e0, in_urbs)
+        out_first_s = first_submit_within(b0, e0, out_urbs)
+        out_last_c  = last_complete_within(b0, e0, out_urbs)
+
+        in_span_sc_ms = ((in_last_c - in_first_s) * 1000.0) if (in_first_s is not None and in_last_c is not None and in_last_c >= in_first_s) else 0.0
+        out_span_sc_ms = ((out_last_c - out_first_s) * 1000.0) if (out_first_s is not None and out_last_c is not None and out_last_c >= out_first_s) else 0.0
+
         results.append({
                 'invoke_index': i,
                 'invoke_span_s': window['end'] - window['begin'],
@@ -400,6 +429,8 @@ def calculate_active_spans_urbs(usbmon_file: str,
                 'out_events_count': len(out_intervals),
                 'in_intervals_ms': in_intervals_ms,
                 'out_intervals_ms': out_intervals_ms,
+                'in_span_sc_ms': in_span_sc_ms,
+                'out_span_sc_ms': out_span_sc_ms,
             })
 
     return results
@@ -981,6 +1012,19 @@ def main():
             except Exception:
                 rec['in_speed_mibps'] = None
                 rec['out_speed_mibps'] = None
+
+            # 方向内 span 速率（MiB/s）：以各自 S→C 跨度作为时长；若跨度为0则为 None
+            try:
+                MiB = 1024.0 * 1024.0
+                in_span_ms = rec.get('in_span_sc_ms')
+                out_span_ms = rec.get('out_span_sc_ms')
+                bin_bytes = float(rec.get('bytes_in', 0) or 0)
+                bout_bytes = float(rec.get('bytes_out', 0) or 0)
+                rec['in_speed_span_mibps'] = (bin_bytes / MiB) / (in_span_ms / 1000.0) if (in_span_ms and in_span_ms > 0) else None
+                rec['out_speed_span_mibps'] = (bout_bytes / MiB) / (out_span_ms / 1000.0) if (out_span_ms and out_span_ms > 0) else None
+            except Exception:
+                rec['in_speed_span_mibps'] = None
+                rec['out_speed_span_mibps'] = None
 
             # Cross-segment diagnostics: IN carry-in/outside and delays
             # 1) Delay from t1 to first IN completion in next window region
