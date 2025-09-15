@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
-分析USB监控数据，计算每次 invoke 的 IO 活跃时间，并以“IN ∪ OUT 并集”唯一口径扣除得到纯计算时间。
+分析USB监控数据，计算每次 invoke 的 IO 活跃时间，并以“IN ∪ OUT 并集”口径扣除得到纯计算时间。
 
 窗口定义与对齐：
-- 默认使用“invoke 窗口”进行统计：仅基于 spans 中的 begin/end（忽略 set/get）。
-- 可选时间轴平移：通过 SHIFT_POLICY 将 [begin,end] 整体平移以对齐 usbmon（例如 in_tail_or_out_head）。
-- 窗口扩展：默认允许在 usbmon 轴上对窗口做前后扩展（ACTIVE_EXPAND_MS，默认 10ms）。
-    若要求严格使用 invoke 窗口，请设置 STRICT_INVOKE_WINDOW=1（扩展为 0ms）。
+- 默认严格使用“invoke 窗口”：仅基于 spans 的 begin/end（忽略 set/get），不做扩展；
+    如需放宽，请显式设置 ACTIVE_EXPAND_MS>0。
+- 可选时间轴平移：通过 SHIFT_POLICY 将 [begin,end] 做常量平移以对齐 usbmon（例如 in_tail_or_out_head）。
 
 时间度量：
 - OUT（主机->设备）：使用 URB S→C 的并集时长（在窗口内裁剪）；字节数按重叠比例分摊。
 - IN（设备->主机）：使用完成事件 C 的小间隙聚类并集时长（聚类间隙由 CLUSTER_GAP_MS 控制）。
 
-纯计算时间（唯一口径）：
-- 纯计算毫秒 pure_compute_ms = invoke_ms - io_union_both_ms，
-    其中 io_union_both_ms 为“IN 聚簇区间 ∪ OUT URB 区间”的并集时长（去重）。
+纯计算时间：
+- pure_compute_ms = invoke_ms - io_union_both_ms（推荐口径，扣 IN 聚簇 ∪ OUT URB 的并集）。
+- pure_ms_in_only = invoke_ms - in_union_cluster_ms（仅扣 IN，可作为流式口径参考）。
+
+可选 off-chip 校正（实验特性）：
+- 若设置了 OFFCHIP_THEORY_OUT_BYTES 和 OFFCHIP_OUT_MIBPS，则给出 pure_compute_offchip_adj_ms，
+    其中会按 (avg_out_bytes - theory_out_bytes)/OUT_MIBPS 折算成时间并加回，避免把设备等待误扣为 IO。
 """
 
 import json
@@ -183,7 +186,9 @@ def parse_urbs_from_file(usbmon_file: str, dirs: Tuple[str, str], dev_filter: Op
                     start = None
                     if tag in pending:
                         s, d, dv = pending.pop(tag)
-                        if d == sub_dir and dir_tok == com_dir:
+                        # Relaxed: if submit direction matches sub_dir, accept any corresponding C token
+                        # Some usbmon variants keep Bi/Bo on C lines instead of Ci/Co
+                        if d == sub_dir:
                             start = s
                     nbytes = 0
                     m = re.search(r"len=(\d+)", ln)
@@ -216,7 +221,10 @@ def calculate_active_spans_urbs(usbmon_file: str,
                                 invoke_windows: List[Dict],
                                 time_map: Dict,
                                 expand_s: float = 0.010,
-                                dev_filter: Optional[int]=None) -> List[Dict]:
+                                dev_filter: Optional[int]=None,
+                                cin_times_for_cluster: Optional[List[float]] = None,
+                                cluster_gap_s: float = 0.0001,
+                                min_cluster_span_s: float = 0.000001) -> List[Dict]:
     """基于 URB 配对（S/C 配对）的方式计算活跃时间与字节数。
 
     关键改进：不再仅保留“完全落入窗口”的URB，否则会导致大量漏算，尤其是IN/OUT跨窗时。
@@ -232,6 +240,12 @@ def calculate_active_spans_urbs(usbmon_file: str,
     out_urbs = parse_urbs_from_file(usbmon_file, ('Bo', 'Co'), dev_filter)
     in_urbs = parse_urbs_from_file(usbmon_file, ('Bi', 'Ci'), dev_filter)
 
+    # small packet exclusion threshold (bytes). Default 64.
+    try:
+        min_urb_bytes = int(float(os.environ.get('MIN_URB_BYTES', '64')))
+    except Exception:
+        min_urb_bytes = 64
+
     def overlap_clip_intervals(
         b: float,
         e: float,
@@ -246,12 +260,14 @@ def calculate_active_spans_urbs(usbmon_file: str,
         intervals: List[Tuple[float, float]] = []
         bytes_sum: float = 0.0
         for (s, t, nb, dir_tok, devn) in urbs:
+            # Exclude small packets entirely from both interval contribution and bytes
+            if (nb or 0) < min_urb_bytes:
+                continue
             # 无重叠
             if t <= b or s >= e:
                 continue
-            # 过滤异常URB：小于64B但持续>2ms
-            if nb < 64 and (t - s) > 0.002:
-                continue
+            # 注：即使字节未知（nb==0），也保留区间用于并集时长；仅在字节分摊时按0处理。
+            # 若明确为超小字节且超长，抑制其字节贡献，但仍保留区间用于时长统计。
             cs = b if s < b else s
             ce = e if t > e else t
             if ce <= cs:
@@ -263,7 +279,12 @@ def calculate_active_spans_urbs(usbmon_file: str,
                 continue
             frac = (ce - cs) / dur
             intervals.append((cs, ce))
-            bytes_sum += float(nb) * max(0.0, min(1.0, frac))
+            # 字节统计：
+            # - nb==0 视为未知：不增加字节，但保留区间
+            # - nb<64 且 dur>2ms：可能为控制/异常，抑制字节但保留区间
+            # - 其他：按比例分摊
+            if nb > 0 and not (nb < 64 and dur > 0.002):
+                bytes_sum += float(nb) * max(0.0, min(1.0, frac))
         return intervals, bytes_sum
 
     def union_length(intervals: List[Tuple[float, float]]) -> float:
@@ -282,14 +303,75 @@ def calculate_active_spans_urbs(usbmon_file: str,
         total += (ce - cs)
         return total
 
+    # Completion times for IN clustering when S is not within window
+    if cin_times_for_cluster is None:
+        cin_times_for_cluster, _ = build_c_event_times(usbmon_file)
+
     results: List[Dict[str, Any]] = []
     for i, window in enumerate(invoke_windows):
-        b0 = window['begin'] - bt_ref + usb_ref - (expand_s or 0.0)
-        e0 = window['end'] - bt_ref + usb_ref + (expand_s or 0.0)
+        he_ms = float(window.get('head_expand_ms', 0.0) or 0.0)
+        te_ms = float(window.get('tail_expand_ms', 0.0) or 0.0)
+        he_s = he_ms / 1000.0
+        te_s = te_ms / 1000.0
+        b0 = window['begin'] - bt_ref + usb_ref - (expand_s or 0.0) - he_s
+        e0 = window['end'] - bt_ref + usb_ref + (expand_s or 0.0) + te_s
 
-        # 对与窗口有重叠的URB进行裁剪，并按重叠比例估算窗口内字节
-        in_intervals, in_bytes_win = overlap_clip_intervals(b0, e0, in_urbs)
+        # OUT：始终使用 URB S->C 裁剪
         out_intervals, out_bytes_win = overlap_clip_intervals(b0, e0, out_urbs)
+
+        # IN：混合口径
+        # - 若该 URB 的 S 在窗口内，则使用 URB S->C 裁剪；
+        # - 否则（S 不在窗口内），改用 C 聚簇（避免用跨窗的 URB 影响时长形态）。
+        in_intervals: List[Tuple[float, float]] = []
+        in_bytes_win_total: float = 0.0
+        # 1) URB路径：仅保留 S 在窗口内的 URB，并裁剪
+        urbs_s_in_window = [
+            (s, t, nb, d, dv)
+            for (s, t, nb, d, dv) in in_urbs
+            if (s >= b0 and s <= e0 and t > b0 and s < e0)
+        ]
+        urbs_s_in_set_end = set(t for (s, t, nb, d, dv) in urbs_s_in_window)
+        urbs_intervals, urbs_bytes = overlap_clip_intervals(b0, e0, urbs_s_in_window)
+        in_intervals.extend(urbs_intervals)
+        in_bytes_win_total += urbs_bytes
+
+        # 2) C聚簇路径：从 C 完成时间中剔除已由 URB路径覆盖的那些（以 C 时间匹配 URB 的 t），再进行聚簇
+        eps = 1e-9
+        c_candidates: List[float] = []
+        # 小包完成时间集合（用于聚簇时剔除）
+        small_in_c_times = set(t for (s, t, nb, d, dv) in in_urbs if (nb or 0) < min_urb_bytes)
+        for ts in cin_times_for_cluster:
+            if ts < b0 or ts > e0:
+                continue
+            # Skip small-packet completions entirely
+            if ts in small_in_c_times:
+                continue
+            # 如果该 C 对应的 URB 其 S 在窗口内，则跳过，由上面的 URB 区间承载
+            skip = False
+            # 以 end 时间匹配，考虑浮点误差
+            if ts in urbs_s_in_set_end:
+                skip = True
+            else:
+                for te in urbs_s_in_set_end:
+                    if abs(te - ts) <= eps:
+                        skip = True
+                        break
+            if not skip:
+                c_candidates.append(ts)
+
+        c_union_s, c_clusters_n, c_clusters = cluster_union_within_window(
+            c_candidates, b0, e0, cluster_gap_s, min_cluster_span_s
+        )
+        # 将 C 聚簇转换为时间区间
+        c_intervals = list(c_clusters)
+        in_intervals.extend(c_intervals)
+
+        # 按之前整体 URB 裁剪估计 IN 字节（保留此前口径）
+        # 注：字节量估计与时长形态可能不完全一致，但“并集时长”符合本诉求
+        _, in_bytes_full = overlap_clip_intervals(b0, e0, in_urbs)
+        if in_bytes_full > in_bytes_win_total:
+            in_bytes_win_total = in_bytes_full
+
         all_intervals = in_intervals + out_intervals
 
         in_active = union_length(in_intervals)
@@ -297,26 +379,27 @@ def calculate_active_spans_urbs(usbmon_file: str,
         union_active = union_length(all_intervals)
 
         # 使用窗口裁剪后的按比例字节数作为窗口内字节量估计
-        total_in_bytes = int(round(in_bytes_win))
+        total_in_bytes = int(round(in_bytes_win_total))
         total_out_bytes = int(round(out_bytes_win))
 
         # 相对窗口的区间（毫秒）
         in_intervals_ms = [((s - b0) * 1000.0, (t - b0) * 1000.0) for (s, t) in in_intervals]
         out_intervals_ms = [((s - b0) * 1000.0, (t - b0) * 1000.0) for (s, t) in out_intervals]
+        # 确保即便字节为0也保留并输出 URB 区间，供并集使用
 
         results.append({
-            'invoke_index': i,
-            'invoke_span_s': window['end'] - window['begin'],
-            'bytes_in': total_in_bytes,
-            'bytes_out': total_out_bytes,
-            'in_active_span_s': in_active,
-            'out_active_span_s': out_active,
-            'union_active_span_s': union_active,
-            'in_events_count': len(in_intervals),
-            'out_events_count': len(out_intervals),
-            'in_intervals_ms': in_intervals_ms,
-            'out_intervals_ms': out_intervals_ms,
-        })
+                'invoke_index': i,
+                'invoke_span_s': window['end'] - window['begin'],
+                'bytes_in': total_in_bytes,
+                'bytes_out': total_out_bytes,
+                'in_active_span_s': in_active,
+                'out_active_span_s': out_active,
+                'union_active_span_s': union_active,
+                'in_events_count': len(in_intervals),
+                'out_events_count': len(out_intervals),
+                'in_intervals_ms': in_intervals_ms,
+                'out_intervals_ms': out_intervals_ms,
+            })
 
     return results
 
@@ -354,6 +437,41 @@ def build_c_event_times(usbmon_file: str) -> Tuple[List[float], List[float]]:
         pass
     cin.sort(); cout.sort()
     return cin, cout
+
+
+def build_submit_event_times(usbmon_file: str) -> Tuple[List[float], List[float]]:
+    """Parse usbmon.txt and return submit (S) timestamps for IN and OUT.
+    Accept both Bi/Bo on S lines.
+    """
+    re_dir = re.compile(r"([CB][io]):(\d+):(\d+):(\d+)")
+    sin: List[float] = []
+    sout: List[float] = []
+    try:
+        with open(usbmon_file, 'r', errors='ignore') as f:
+            for ln in f:
+                parts = ln.split()
+                if len(parts) < 3:
+                    continue
+                sc = parts[2]
+                if sc != 'S':
+                    continue
+                try:
+                    ts = float(parts[1])
+                    ts = ts / 1e6 if ts > 1e6 else ts
+                except Exception:
+                    continue
+                m = re_dir.search(ln)
+                if not m:
+                    continue
+                tok = m.group(1)
+                if tok.startswith('Bi'):
+                    sin.append(ts)
+                elif tok.startswith('Bo'):
+                    sout.append(ts)
+    except FileNotFoundError:
+        pass
+    sin.sort(); sout.sort()
+    return sin, sout
 
 
 def compute_shift_deltas_per_invoke(
@@ -434,6 +552,108 @@ def compute_shift_deltas_per_invoke(
     return deltas
 
 
+def compute_alignment_tail_last_in_guard_bos(
+    invokes: List[Dict],
+    time_map: Dict,
+    cin_times: List[float],
+    bos_times: List[float],
+    tail_ms: float,
+    head_ms: float,
+    max_shift_ms: float,
+    extra_head_expand_ms: float,
+) -> List[Dict[str, Any]]:
+    """Compute per-invoke alignment plan:
+    1) Align window tail (t1) to the last IN completion within [t1 - head_ms, t1 + tail_ms].
+       - If the last IN lies before t1 (already inside window), do not move (no negative shift).
+    2) Guard to include the first Bo submit (S) near head:
+       - If BoS lies before shifted start by <= extra_head_expand_ms, expand head by that amount (increase window length).
+       - Else reduce shift (shrink tail alignment) just enough to include BoS; head expand remains capped at extra.
+
+    Returns a list of dict per invoke: {
+      'shift_s': float, 'head_expand_s': float, 'tail_shrink_s': float,
+      'last_in_ts': float|None, 'bos_ts': float|None,
+      'reason': str
+    }
+    """
+    usb_ref = time_map.get('usbmon_ref')
+    bt_ref = time_map.get('boottime_ref')
+    if usb_ref is None or bt_ref is None:
+        return [{'shift_s': 0.0, 'head_expand_s': 0.0, 'tail_shrink_s': 0.0, 'last_in_ts': None, 'bos_ts': None, 'reason': 'no_time_map'} for _ in invokes]
+
+    tail_s = max(0.0, (tail_ms or 0.0) / 1000.0)
+    head_s = max(0.0, (head_ms or 0.0) / 1000.0)
+    max_s  = max(0.0, (max_shift_ms or 0.0) / 1000.0)
+    extra_s = max(0.0, (extra_head_expand_ms or 0.0) / 1000.0)
+
+    plans: List[Dict[str, Any]] = []
+    for i, w in enumerate(invokes):
+        t0 = usb_ref + (w['begin'] - bt_ref)
+        t1 = usb_ref + (w['end'] - bt_ref)
+
+        # 1) Tail align to last IN within [t0 - head_s, t1 + tail_s]
+        last_in = last_within(cin_times, t0 - head_s, t1 + tail_s)
+        # Align tail to that IN: allow negative or positive shift
+        shift = (last_in - t1) if (last_in is not None) else 0.0
+        # clamp to allowed range [-max_s, max_s]
+        if shift < -max_s or shift > max_s:
+            # out of bound: do not align to this IN
+            shift = 0.0
+            last_in = None
+
+        reason = 'tail_last_in' if last_in is not None else 'no_tail_in'
+        head_expand = 0.0
+        tail_shrink = 0.0
+
+        # 2) Find first BoS near head: prefer first after t0, else last before t0 within head_s
+        bos = None
+        # First BoS after t0
+        for ts in bos_times:
+            if ts >= t0:
+                if ts <= t0 + head_s:
+                    bos = ts
+                break
+        if bos is None:
+            # last before t0 within head window
+            for ts in reversed(bos_times):
+                if ts < t0 - head_s:
+                    break
+                if ts < t0:
+                    bos = ts
+                    break
+
+        if bos is not None:
+            start_shifted = t0 + shift
+            if bos < start_shifted:
+                need = start_shifted - bos  # how much earlier the head needs to be
+                if need <= extra_s:
+                    head_expand = need
+                    reason += '+head_expand'
+                else:
+                    # reduce shift (move start earlier) to include BoS; cap head_expand to extra_s
+                    reduce = need - extra_s
+                    shift = shift - reduce
+                    # clamp again to [-max_s, max_s]
+                    if shift < -max_s:
+                        shift = -max_s
+                    if shift >  max_s:
+                        shift =  max_s
+                    # tail_shrink is how much we backed off from tail alignment
+                    if last_in is not None:
+                        ideal = (last_in - t1)
+                        tail_shrink = max(0.0, ideal - shift)
+                    reason += '+guard_bos_reduce_shift'
+
+        plans.append({
+            'shift_s': shift,
+            'head_expand_s': head_expand,
+            'tail_shrink_s': tail_shrink,
+            'last_in_ts': last_in,
+            'bos_ts': bos,
+            'reason': reason,
+        })
+    return plans
+
+
 def cluster_union_within_window(times: List[float], w_begin: float, w_end: float, gap_s: float, min_span_s: float) -> Tuple[float, int, List[Tuple[float, float]]]:
     """Cluster event times within [w_begin, w_end] and return (union_len_s, clusters_count, clusters).
     Each cluster span is max(last-first, min_span_s). Events must already be absolute timestamps.
@@ -455,6 +675,25 @@ def cluster_union_within_window(times: List[float], w_begin: float, w_end: float
     for s, t in clusters:
         total += max(t - s, min_span_s)
     return total, len(clusters), clusters
+
+def first_after(times: List[float], t: float) -> Optional[float]:
+    """Return first event time >= t from a sorted list, else None."""
+    for ts in times:
+        if ts >= t:
+            return ts
+    return None
+
+def last_within(times: List[float], t0: float, t1: float) -> Optional[float]:
+    """Return last event time in (t0, t1], else None. times must be sorted."""
+    last = None
+    for ts in times:
+        if ts <= t0:
+            continue
+        if ts <= t1:
+            last = ts
+        else:
+            break
+    return last
 
 
 def main():
@@ -482,7 +721,7 @@ def main():
                 if ts is not None and direction is not None:
                     usbmon_records.append((ts, direction, bytes_count, dev_num))
         
-    # 计算活跃时间（支持通过环境变量 ACTIVE_EXPAND_MS 设置扩展毫秒，默认 10ms）
+    # 计算活跃时间（支持通过环境变量 ACTIVE_EXPAND_MS 设置扩展毫秒，默认严格=0ms）
         invoke_windows = invokes_data.get('spans', [])
         # 读取对齐策略参数
         shift_policy = os.environ.get('SHIFT_POLICY', 'none').strip()
@@ -506,31 +745,85 @@ def main():
             min_cluster_us = float(os.environ.get('MIN_CLUSTER_US', '1'))
         except Exception:
             min_cluster_us = 1.0
+        # 默认严格窗口：不扩展；用户可显式设置 ACTIVE_EXPAND_MS>0 放宽
         try:
             expand_ms_env = os.environ.get('ACTIVE_EXPAND_MS')
-            expand_ms = float(expand_ms_env) if expand_ms_env else 10.0
+            expand_ms = float(expand_ms_env) if expand_ms_env is not None else 0.0
         except Exception:
-            expand_ms = 10.0
-        # 若要求严格使用 invoke 窗口（忽略任何扩展），则强制将扩展设为 0
-        strict_invoke_window = os.environ.get('STRICT_INVOKE_WINDOW', '0').strip().lower() in ('1','true','yes','on')
+            expand_ms = 0.0
+        # 严格标志默认开启；允许通过 STRICT_INVOKE_WINDOW=0 关闭
+        strict_invoke_window = os.environ.get('STRICT_INVOKE_WINDOW', '1').strip().lower() in ('1','true','yes','on')
         if strict_invoke_window:
             expand_ms = 0.0
-        # 构建 C 完成事件时间表用于对齐与聚类
+    # 构建 S/C 事件时间表用于对齐与聚类
         cin_times, cout_times = build_c_event_times(usbmon_file)
+        sin_times, sout_times = build_submit_event_times(usbmon_file)
 
         # 计算每次 invoke 的平移量（秒）
-        if shift_policy not in ('none', 'in_tail', 'out_head', 'in_tail_or_out_head'):
+        extra_head_expand_ms = 0.0
+        try:
+            extra_head_expand_ms = float(os.environ.get('EXTRA_HEAD_EXPAND_MS', '1'))
+        except Exception:
+            extra_head_expand_ms = 1.0
+
+        if shift_policy not in ('none', 'in_tail', 'out_head', 'in_tail_or_out_head', 'tail_last_BiC_guard_BoS'):
             shift_policy = 'none'
-        shift_deltas = compute_shift_deltas_per_invoke(
-            invoke_windows, time_map, cin_times, cout_times,
-            shift_policy, search_tail_ms, search_head_ms, max_shift_ms
-        )
+
+        if shift_policy == 'tail_last_BiC_guard_BoS':
+            # 按字节阈值筛选用于对齐的事件：
+            # - 头部 Bo S：仅考虑 Bo/Co URB 中字节数 > 1KiB 的提交时间 S
+            # - 尾部 Bi C：仅考虑 Bi/Ci URB 中字节数 > 512B 的完成时间 C
+            try:
+                head_bos_min_bytes = int(float(os.environ.get('HEAD_BOS_MIN_BYTES', '1024')))
+            except Exception:
+                head_bos_min_bytes = 1024
+            try:
+                tail_bi_min_bytes = int(float(os.environ.get('TAIL_BI_MIN_BYTES', '512')))
+            except Exception:
+                tail_bi_min_bytes = 512
+
+            # 可选设备过滤（若对齐也需要限定到某个设备）
+            dev_filter_align = None
+            try:
+                dev_env = os.environ.get('USBMON_DEV')
+                dev_filter_align = int(dev_env) if dev_env else None
+            except Exception:
+                dev_filter_align = None
+
+            out_urbs_align = parse_urbs_from_file(usbmon_file, ('Bo', 'Co'), dev_filter_align)
+            in_urbs_align = parse_urbs_from_file(usbmon_file, ('Bi', 'Ci'), dev_filter_align)
+            # 过滤并提取时间轴
+            bos_times_filt = sorted([s for (s, t, nb, d, dv) in out_urbs_align if (nb or 0) > head_bos_min_bytes])
+            cin_times_filt = sorted([t for (s, t, nb, d, dv) in in_urbs_align if (nb or 0) > tail_bi_min_bytes])
+
+            plans = compute_alignment_tail_last_in_guard_bos(
+                invoke_windows, time_map, cin_times_filt, bos_times_filt,
+                search_tail_ms, search_head_ms, max_shift_ms, extra_head_expand_ms
+            )
+            shift_deltas = [p['shift_s'] for p in plans]
+            head_expands = [p['head_expand_s'] for p in plans]
+            tail_shrinks = [p['tail_shrink_s'] for p in plans]
+        else:
+            plans = None
+            shift_deltas = compute_shift_deltas_per_invoke(
+                invoke_windows, time_map, cin_times, cout_times,
+                shift_policy, search_tail_ms, search_head_ms, max_shift_ms
+            )
+            head_expands = [0.0] * len(shift_deltas)
+            tail_shrinks = [0.0] * len(shift_deltas)
 
         # 生成平移后的窗口
         invoke_windows_shifted = []
         for i, w in enumerate(invoke_windows):
             d = shift_deltas[i] if i < len(shift_deltas) else 0.0
-            invoke_windows_shifted.append({'begin': w['begin'] + d, 'end': w['end'] + d})
+            he = head_expands[i] if i < len(head_expands) else 0.0
+            # Tail expansion is not used in this policy; we record tail_shrink diagnostically
+            invoke_windows_shifted.append({
+                'begin': w['begin'] + d,
+                'end': w['end'] + d,
+                'head_expand_ms': he * 1000.0,  # store ms for downstream
+                'tail_expand_ms': 0.0,
+            })
 
     # 优先使用更稳健的 URB 并集时长计算；若无效或事件计数为0，则回退到行级事件 min-max 估计
         try:
@@ -541,15 +834,31 @@ def main():
                 dev_filter = int(dev_env) if dev_env else None
             except Exception:
                 dev_filter = None
-            active_spans = calculate_active_spans_urbs(usbmon_file, invoke_windows_shifted, time_map, expand_s=expand_ms/1000.0, dev_filter=dev_filter)
-            def spans_have_meaningful_bytes(spans):
+            active_spans = calculate_active_spans_urbs(
+                usbmon_file, invoke_windows_shifted, time_map,
+                expand_s=expand_ms/1000.0, dev_filter=dev_filter,
+                cin_times_for_cluster=cin_times, cluster_gap_s=gap_s if 'gap_s' in locals() else 0.0001,
+                min_cluster_span_s=min_span_s if 'min_span_s' in locals() else 0.000001
+            )
+            def spans_have_meaningful_urb(spans):
+                if not spans:
+                    return False
+                # 若任何窗口存在URB并集区间或活跃时长>0，则认为URB解析有效
+                for s in spans:
+                    if (s.get('in_intervals_ms') or s.get('out_intervals_ms')):
+                        return True
+                    if (s.get('in_active_span_s') or 0.0) > 0.0:
+                        return True
+                    if (s.get('out_active_span_s') or 0.0) > 0.0:
+                        return True
+                    if (s.get('union_active_span_s') or 0.0) > 0.0:
+                        return True
+                # 最后再看字节作为弱信号
                 warm = spans[1:] if len(spans) > 1 else spans
                 total_bytes = sum((s.get('bytes_in', 0) or 0) + (s.get('bytes_out', 0) or 0) for s in warm)
-                total_events = sum((s.get('in_events_count', 0) or 0) + (s.get('out_events_count', 0) or 0) for s in warm)
-                # 要么有字节，要么至少有事件但字节不全为 0（兼容不同内核格式）
-                return (total_bytes > 0) or (total_events > 0 and any(((s.get('bytes_in',0) or 0) > 0 or (s.get('bytes_out',0) or 0) > 0) for s in warm))
+                return total_bytes > 0
             # 若 URB 解析无有效字节（或无事件），回退到按行统计，与 io_split 行为对齐
-            if not active_spans or not spans_have_meaningful_bytes(active_spans):
+            if not active_spans or not spans_have_meaningful_urb(active_spans):
                 if dev_filter is not None:
                     usbmon_records = [r for r in usbmon_records if r[3] == dev_filter]
                 active_spans = calculate_active_spans(usbmon_records, invoke_windows_shifted, time_map, expand_s=expand_ms/1000.0)
@@ -580,16 +889,32 @@ def main():
             total += (ce - cs)
             return total
 
+        # 可选 off-chip 调整：通过环境变量注入理论 OUT 字节与均速
+        def _env_float(name, default=None):
+            v = os.environ.get(name)
+            if v is None:
+                return default
+            try:
+                return float(v)
+            except Exception:
+                return default
+
+        theory_out_bytes = _env_float('OFFCHIP_THEORY_OUT_BYTES', None)
+        out_mibps = _env_float('OFFCHIP_OUT_MIBPS', None)
+
         for i, rec in enumerate(active_spans):
-            w = invoke_windows[i]
+            raw_w = invoke_windows[i]
+            aligned_w = invoke_windows_shifted[i] if i < len(invoke_windows_shifted) else {'begin': raw_w['begin'], 'end': raw_w['end'], 'head_expand_ms': 0.0, 'tail_expand_ms': 0.0}
             d = shift_deltas[i] if i < len(shift_deltas) else 0.0
-            # shifted absolute window in usbmon time
-            b = (w['begin'] + d) - bt_ref + usb_ref - (expand_ms/1000.0 if expand_ms else 0.0)
-            e = (w['end']   + d) - bt_ref + usb_ref + (expand_ms/1000.0 if expand_ms else 0.0)
+            he_ms = aligned_w.get('head_expand_ms', 0.0) or 0.0
+            te_ms = aligned_w.get('tail_expand_ms', 0.0) or 0.0
+            # shifted absolute window in usbmon time with per-invoke asymmetric expand
+            b = (raw_w['begin'] + d) - bt_ref + usb_ref - ((expand_ms + he_ms)/1000.0 if (expand_ms or he_ms) else 0.0)
+            e = (raw_w['end']   + d) - bt_ref + usb_ref + ((expand_ms + te_ms)/1000.0 if (expand_ms or te_ms) else 0.0)
             in_u_s, in_k, in_clusters = cluster_union_within_window(cin_times, b, e, gap_s, min_span_s)
-            out_u_s, out_k, out_clusters = cluster_union_within_window(cout_times, b, e, gap_s, min_span_s)
-            inv_ms = (w['end'] - w['begin']) * 1000.0
-            # OUT 的 URB 并集时长（毫秒）来自上游 URB 解析结果
+            _, out_k, _ = cluster_union_within_window(cout_times, b, e, gap_s, min_span_s)
+            inv_ms = (raw_w['end'] - raw_w['begin']) * 1000.0
+            # OUT 的 URB 并集时长（毫秒）来自 URB 解析
             out_urb_ms = (rec.get('out_active_span_s') or 0.0) * 1000.0
             # IN聚簇区间（ms，相对窗口）
             in_cluster_intervals_ms = [((s - b) * 1000.0, (t - b) * 1000.0) for (s, t) in in_clusters]
@@ -597,20 +922,84 @@ def main():
             out_urb_intervals_ms = rec.get('out_intervals_ms') or []
             # 并集扣除口径（去重）
             io_union_both_ms = union_length_ms(in_cluster_intervals_ms + out_urb_intervals_ms)
-            # 唯一口径：纯计算时间
+            # 纯计算时间（推荐）
             pure_compute_ms = inv_ms - io_union_both_ms
+            # 仅扣 IN（参考）
+            pure_in_only_ms = inv_ms - (in_u_s * 1000.0)
+
+            # 诊断：绝对窗口、IN 最后 C
+            try:
+                in_last_c = max((ts for ts in cin_times if b <= ts <= e), default=None)
+                in_last_c_ms = (in_last_c * 1000.0) if in_last_c is not None else None
+            except Exception:
+                in_last_c_ms = None
+
             rec['shift_policy'] = shift_policy
             rec['shift_ms'] = d * 1000.0
             rec['cluster_gap_ms'] = cluster_gap_ms
-            rec['window_source'] = 'invoke'  # 明确标注：仅使用 invoke 窗口（忽略 set/get）
+            rec['window_source'] = 'invoke'
             rec['window_expand_ms'] = expand_ms
+            rec['window_head_expand_ms'] = he_ms
+            rec['window_tail_expand_ms'] = te_ms
+            rec['invoke_window_begin_ms'] = b * 1000.0
+            rec['invoke_window_end_ms'] = e * 1000.0
+            rec['in_last_c_ms'] = in_last_c_ms
+
+            # expose tail guard diagnostics when using tail_last_BiC_guard_BoS
+            if plans is not None and i < len(plans):
+                rec['tail_shrink_ms'] = (plans[i].get('tail_shrink_s') or 0.0) * 1000.0
+                rec['align_reason'] = plans[i].get('reason')
+
             rec['in_union_cluster_ms'] = in_u_s * 1000.0
             rec['out_union_urb_ms'] = out_urb_ms
             rec['io_union_both_ms'] = io_union_both_ms
             rec['pure_compute_ms'] = pure_compute_ms
+            rec['pure_ms_in_only'] = pure_in_only_ms
             rec['in_clusters'] = in_k
             rec['out_clusters'] = out_k
+
+            # Cross-segment diagnostics: IN carry-in/outside and delays
+            # 1) Delay from t1 to first IN completion in next window region
+            #    Use SEARCH_TAIL_MS tail to look right after e (shifted t1)
+            try:
+                first_c_after_t1 = first_after(cin_times, e)
+                rec['first_BiC_after_t1_ms'] = ((first_c_after_t1 - e) * 1000.0) if first_c_after_t1 is not None else None
+            except Exception:
+                rec['first_BiC_after_t1_ms'] = None
+            # 2) Last IN completion within +SEARCH_TAIL_MS after t1
+            try:
+                tail_ms = float(os.environ.get('SEARCH_TAIL_MS', '20'))
+            except Exception:
+                tail_ms = 20.0
+            last_c_in_tail = last_within(cin_times, e, e + tail_ms/1000.0)
+            rec['last_BiC_within_+tail_ms'] = ((last_c_in_tail - e) * 1000.0) if last_c_in_tail is not None else None
+
+            # 3) Quantify carry-in IO that starts before window but completes inside
+            #    Using URB intervals already clipped: if an IN interval starts < b and ends > b, it's a carry-in slice.
+            try:
+                in_intervals_ms = rec.get('in_intervals_ms') or []
+                carry_in_ms = 0.0
+                for s_ms, t_ms in in_intervals_ms:
+                    # relative to window begin
+                    # carry-in if original URB crossed b; our intervals_ms are already clipped, so we approximate:
+                    # treat any interval that begins near 0 as potential carry-in; use a small epsilon to avoid float noise
+                    if s_ms <= 0.01 and t_ms > 0.01:
+                        carry_in_ms += (t_ms - max(s_ms, 0.0))
+                rec['in_carry_from_prev_ms'] = carry_in_ms
+            except Exception:
+                rec['in_carry_from_prev_ms'] = None
+
+            # off-chip 调整（可选）
+            if theory_out_bytes is not None and out_mibps is not None and out_mibps > 0:
+                try:
+                    actual_out_bytes = float(rec.get('bytes_out', 0) or 0)
+                    extra_bytes = max(0.0, actual_out_bytes - theory_out_bytes)
+                    extra_s = (extra_bytes / (out_mibps * 1024.0 * 1024.0)) if extra_bytes > 0 else 0.0
+                    rec['pure_compute_offchip_adj_ms'] = pure_compute_ms + (extra_s * 1000.0)
+                except Exception:
+                    rec['pure_compute_offchip_adj_ms'] = pure_compute_ms
             enriched.append(rec)
+        active_spans = enriched
         active_spans = enriched
         
         # 输出结果（附带窗口定义元信息）

@@ -53,6 +53,10 @@ def get_results_base() -> str:
 
 def get_usb_bus():
     """获取USB EdgeTPU总线号"""
+    # 允许通过环境变量覆盖自动检测（例如 USB_BUS=2）
+    env_bus = os.environ.get('USB_BUS') or os.environ.get('EDGETPU_BUS')
+    if env_bus and str(env_bus).isdigit():
+        return int(env_bus)
     try:
         result = subprocess.run([VENV_PY, "/home/10210/Desktop/OS/list_usb_buses.py"], 
                               capture_output=True, text=True, check=True)
@@ -107,7 +111,38 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
     # 添加推理间隔选项，避免长尾IO影响
     if 'INVOKE_GAP_MS' in os.environ:
         env['INVOKE_GAP_MS'] = os.environ['INVOKE_GAP_MS']
-    
+    # 标准分析相关缺省（仅记录、便于追溯）
+    env.setdefault('STRICT_INVOKE_WINDOW', '1')
+    env.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+    env.setdefault('CLUSTER_GAP_MS', '0.1')
+    # 统一写入 CAP_DUR 到 env，便于记录
+    if USE_CHAIN_MODE:
+        default_cap = '60'
+    else:
+        default_cap = '45'
+    env['CAP_DUR'] = os.environ.get('CAP_DUR', default_cap)
+
+    # 预写运行环境记录
+    try:
+        os.makedirs(outdir, exist_ok=True)
+        keys = [
+            'COUNT','INVOKE_GAP_MS','CAP_DUR',
+            'STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
+            'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV',
+            'MUTATE_INPUT','OFFCHIP_THEORY_OUT_BYTES','OFFCHIP_OUT_MIBPS'
+        ]
+        meta = {k: env.get(k) for k in keys}
+        meta.update({
+            'COUNT_requested': req_count,
+            'bus': bus,
+            'use_chain_mode': USE_CHAIN_MODE,
+            'use_sim_chain': USE_SIM_CHAIN,
+        })
+        with open(os.path.join(outdir, 'run_env.json'), 'w') as _f:
+            json.dump(meta, _f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
     try:
         if USE_CHAIN_MODE:
             # 链式：对所属模型目录一次性生成 seg*/invokes.json，然后各段单独分析
@@ -116,7 +151,7 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
                 tpu_dir = os.path.join(MODELS_BASE, model_name, "full_split_pipeline_local", "tpu")
                 os.makedirs(outdir, exist_ok=True)
                 # 估算采集时长：默认 60s，可用 CAP_DUR 覆盖
-                cap_dur = os.environ.get('CAP_DUR', '60')
+                cap_dur = env['CAP_DUR']
                 if USE_SIM_CHAIN:
                     result = subprocess.run([
                         SIM_CHAIN_CAPTURE_SCRIPT,
@@ -139,7 +174,7 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
                 result = subprocess.CompletedProcess(args=[], returncode=0, stdout='', stderr='')
         else:
             # 非链式：默认 45s，可用 CAP_DUR 覆盖
-            cap_dur = os.environ.get('CAP_DUR', '45')
+            cap_dur = env['CAP_DUR']
             result = subprocess.run([
                 CAPTURE_SCRIPT,
                 model_file,
@@ -148,26 +183,6 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
                 str(bus),  # 确保bus是字符串
                 cap_dur
             ], env=env, check=True)
-            # 映射失败则回退使用 0u（所有总线）再试一次
-            try:
-                tm_path = os.path.join(outdir, 'time_map.json')
-                tm_ok = False
-                if os.path.exists(tm_path):
-                    with open(tm_path) as _f:
-                        tmj = json.load(_f)
-                    tm_ok = (tmj.get('usbmon_ref') is not None) and (tmj.get('boottime_ref') is not None)
-                if not tm_ok:
-                    print("time_map 未就绪，回退到 usbmon 0u 重新采集一次…")
-                    result = subprocess.run([
-                        CAPTURE_SCRIPT,
-                        model_file,
-                        f"{model_name}_seg{seg_num}",
-                        outdir,
-                        '0',
-                        cap_dur
-                    ], env=env, check=True)
-            except Exception as _e:
-                print(f"回退重试检查失败: {_e}")
         
         print(f"测试完成: {model_name} seg{seg_num}")
         return True
@@ -273,7 +288,7 @@ def generate_active_analysis_from_overlap(overlap_data, spans):
 def analyze_performance(outdir, model_name, seg_num):
     """分析性能数据并生成摘要"""
     invokes_file = os.path.join(outdir, "invokes.json")
-    io_file = os.path.join(outdir, "io_split_bt.json")
+    # io_split_bt.json 不再是必需；统一使用 analyzer 结果
     usbmon_file = os.path.join(outdir, "usbmon.txt")
     time_map_file = os.path.join(outdir, "time_map.json")
     # 链式模式下，usbmon与time_map位于模型级目录，做就近回退
@@ -291,13 +306,22 @@ def analyze_performance(outdir, model_name, seg_num):
             time_map_file = p1
         elif os.path.exists(p2):
             time_map_file = p2
+    # 读取 run_env（若存在）
+    run_env_file = os.path.join(outdir, 'run_env.json')
+    run_env = None
+    if os.path.exists(run_env_file):
+        try:
+            with open(run_env_file) as f:
+                run_env = json.load(f)
+        except Exception:
+            run_env = None
     summary_file = os.path.join(outdir, "performance_summary.json")
     active_analysis_strict_file = os.path.join(outdir, "active_analysis_strict.json")
     active_analysis_loose_file = os.path.join(outdir, "active_analysis_loose.json")
     # 统一禁用宽松窗口，严格窗口口径（用户要求 ENABLE_LOOSE=0）
     enable_loose = False
     
-    if not os.path.exists(invokes_file) or not os.path.exists(io_file):
+    if not os.path.exists(invokes_file):
         return None
     
     try:
@@ -308,16 +332,49 @@ def analyze_performance(outdir, model_name, seg_num):
         if not spans:
             return None
 
-        # 预载可选的外部活跃分析结果（若存在）以避免 NameError
+        # 先运行严格窗口分析器，生成 active_analysis_strict.json，并加载到内存
         active_analysis_strict = None
         try:
-            if os.path.exists(active_analysis_strict_file):
-                with open(active_analysis_strict_file) as _f:
-                    active_analysis_strict = json.load(_f)
+            ana_script = "/home/10210/Desktop/OS/analyze_usbmon_active.py"
+            if os.path.exists(ana_script) and os.path.exists(usbmon_file) and os.path.exists(time_map_file):
+                env_ana = os.environ.copy()
+                # 优先采用 run_env 里的配置用于复现；否则给出缺省
+                if run_env and isinstance(run_env, dict):
+                    for k in [
+                        'STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
+                        'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV'
+                    ]:
+                        v = run_env.get(k)
+                        if v is not None:
+                            env_ana[k] = str(v)
+                env_ana.setdefault('STRICT_INVOKE_WINDOW', '1')
+                env_ana.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+                env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
+                res_ana = subprocess.run(
+                    [SYS_PY, ana_script, usbmon_file, invokes_file, time_map_file],
+                    capture_output=True, text=True, check=True, env=env_ana
+                )
+                ana_out = res_ana.stdout or ""
+                try:
+                    active_analysis_strict = json.loads(ana_out)
+                except Exception:
+                    # 若 stdout 混入其他输出，尝试定位首个 JSON 对象
+                    import re as _re
+                    m = _re.search(r"\{.*\}\s*\Z", ana_out, flags=_re.S)
+                    if m:
+                        active_analysis_strict = json.loads(m.group(0))
+                if isinstance(active_analysis_strict, dict):
+                    try:
+                        with open(active_analysis_strict_file, 'w') as _fo:
+                            json.dump(active_analysis_strict, _fo, indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
+            else:
+                active_analysis_strict = None
         except Exception:
             active_analysis_strict = None
 
-        # 计算推理窗口时间统计
+    # 计算推理窗口时间统计
         inference_stats = {}
         import statistics as _st
         warm_invokes = spans[1:] if len(spans) > 1 else spans
@@ -340,170 +397,75 @@ def analyze_performance(outdir, model_name, seg_num):
             'all_ms': times
         }
         
-        # 使用简化解析器统计严格窗口的字节与速率（统一 MiB 单位）；改用 tools/correct_per_invoke_stats.py 输出作为权威
+        # 统一使用 analyzer 输出：active_analysis_strict.json
         io_stats = {}
-        per_invoke_from_corr = None
-        try:
-            corr_script = "/home/10210/Desktop/OS/tools/correct_per_invoke_stats.py"
-            if not os.path.exists(corr_script):
-                raise FileNotFoundError(corr_script)
-            # 优先严格窗口(full)且不扩展(extra=0)，必要时再小幅放宽
-            extras = []
+        # 确保已生成严格分析；若缺失，立即执行
+        active_analysis_strict = None
+        if os.path.exists(active_analysis_strict_file):
             try:
-                extras.append(float(os.environ.get('EXTRA_S', '0.000')))
+                with open(active_analysis_strict_file) as af:
+                    active_analysis_strict = json.load(af)
             except Exception:
-                extras.append(0.000)
-            for v in (0.005, 0.010):
-                if all(abs(v - x) > 1e-6 for x in extras):
-                    extras.append(v)
-            txt = ""
-            chosen_extra = extras[0]
-            import re as _re, json as _json
-            # 预计算每个窗口的时长(含warm)用于基本合理性校验
-            _spans_s = [(s['end']-s['begin']) for s in spans]
-            _avg_span = (sum(_spans_s)/len(_spans_s)) if _spans_s else 0.0
-            for _extra in extras:
-                res_corr = subprocess.run([
-                    VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file,
-                    "--mode", "bulk_complete", "--include", "full",
-                    "--extra", f"{_extra:.3f}"
-                ], capture_output=True, text=True, check=True)
-                txt = res_corr.stdout or ""
-                mp = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
-                if not mp:
-                    continue
-                try:
-                    arr_try = _json.loads(mp.group(1))
-                except Exception:
-                    continue
-                # 接受条件：至少一半warm窗口有字节，且 union_active 不显著超过窗口
-                warm_vals = [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try[1:]] if len(arr_try) > 1 else [x.get('bytes_in', 0) + x.get('bytes_out', 0) for x in arr_try]
-                ok_bytes = sum(1 for v in warm_vals if v > 0) >= max(1, int(0.5 * len(warm_vals)))
-                try:
-                    unions = [float(x.get('union_active_s') or 0.0) for x in arr_try]
-                    # 容忍极小浮点误差：union 不应大于窗口均值的 110%
-                    ok_union = (max(unions[1:], default=0.0) <= (_avg_span * 1.10 + 1e-6)) if _avg_span > 0 else True
-                except Exception:
-                    ok_union = True
-                if ok_bytes and ok_union:
-                    chosen_extra = _extra
-                    per_invoke_from_corr = arr_try
-                    break
-            # 保存 stdout，便于排错
+                active_analysis_strict = None
+        if not isinstance(active_analysis_strict, dict):
             try:
-                with open(os.path.join(outdir, 'correct_per_invoke_stdout.txt'), 'w') as _fo:
-                    _fo.write(txt)
+                ana_script = "/home/10210/Desktop/OS/analyze_usbmon_active.py"
+                if os.path.exists(ana_script) and os.path.exists(usbmon_file) and os.path.exists(time_map_file):
+                    env_ana = os.environ.copy()
+                    if run_env and isinstance(run_env, dict):
+                        for k in [
+                            'STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
+                            'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV'
+                        ]:
+                            v = run_env.get(k)
+                            if v is not None:
+                                env_ana[k] = str(v)
+                    env_ana.setdefault('STRICT_INVOKE_WINDOW', '1')
+                    env_ana.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+                    env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
+                    res_ana = subprocess.run([SYS_PY, ana_script, usbmon_file, invokes_file, time_map_file], capture_output=True, text=True, check=True, env=env_ana)
+                    ana_out = res_ana.stdout or ""
+                    active_analysis_strict = json.loads(ana_out)
+                    with open(active_analysis_strict_file, 'w') as _fo:
+                        json.dump(active_analysis_strict, _fo, indent=2, ensure_ascii=False)
             except Exception:
-                pass
-            # 若尚未解析成功，再解析一次（不影响 chosen_extra）
-            if per_invoke_from_corr is None:
-                mp = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt, flags=_re.S)
-                if mp:
-                    try:
-                        per_invoke_from_corr = _json.loads(mp.group(1))
-                    except Exception:
-                        per_invoke_from_corr = None
-            # 解析 JSON_SUMMARY 获取 warm 平均字节
-            mjson = _re.search(r"JSON_SUMMARY:\s*(\{.*\})", txt)
-            avg_in_bytes = avg_out_bytes = 0.0
-            if mjson:
-                try:
-                    js = _json.loads(mjson.group(1))
-                    avg_in_bytes = float(js.get('warm_avg_in_bytes', 0.0) or 0.0)
-                    avg_out_bytes = float(js.get('warm_avg_out_bytes', 0.0) or 0.0)
-                except Exception:
-                    avg_in_bytes = avg_out_bytes = 0.0
-            # 回退解析（历史格式）
-            if avg_in_bytes == 0.0 and avg_out_bytes == 0.0:
-                m2 = _re.search(r"平均传输:\s*IN=([\d.]+)MB,\s*OUT=([\d.]+)MB", txt)
-                if m2:
-                    _in_mib = float(m2.group(1)); _out_mib = float(m2.group(2))
-                    avg_in_bytes = _in_mib * 1024 * 1024.0
-                    avg_out_bytes = _out_mib * 1024 * 1024.0
-            # 窗口均值速率
-            all_spans = [(s['end']-s['begin']) for s in spans]
-            avg_span_s = (sum(all_spans)/len(all_spans)) if all_spans else 0.0
-            to_MiB = lambda b: (b / (1024.0 * 1024.0))
-            MiBps_in = (to_MiB(avg_in_bytes) / avg_span_s) if avg_span_s>0 else 0.0
-            MiBps_out = (to_MiB(avg_out_bytes) / avg_span_s) if avg_span_s>0 else 0.0
-            total_windows = max(1, len(all_spans))
-            total_in_bytes = int(avg_in_bytes * total_windows)
-            total_out_bytes = int(avg_out_bytes * total_windows)
+                active_analysis_strict = None
+        # 提取纯计算时间，以 analyzer 为准
+        if isinstance(active_analysis_strict, dict) and 'per_invoke' in active_analysis_strict:
+            pv = active_analysis_strict.get('per_invoke', [])
+            if pv and invoke_times_ms:
+                pure_invoke_times_ms = []
+                for i in range(min(len(invoke_times_ms), len(pv))):
+                    pc = pv[i].get('pure_compute_ms')
+                    if pc is None:
+                        pc = pv[i].get('pure_ms_in_only')
+                    if pc is not None:
+                        pure_invoke_times_ms.append(max(0.0, float(pc)))
+                if pure_invoke_times_ms:
+                    pure_io_times_ms = pure_invoke_times_ms
+            # 计算 IO 聚合速率（ratio-of-sums）
+            warm = pv[1:] if len(pv) > 1 else pv
+            sum_in_b = sum(int(x.get('bytes_in', 0) or 0) for x in warm)
+            sum_out_b = sum(int(x.get('bytes_out', 0) or 0) for x in warm)
+            sum_union_s = sum(float(x.get('union_active_span_s', x.get('union_active_s', 0.0)) or 0.0) for x in warm)
+            # 避免除零，且单位统一为 MiB/s
+            def to_mib(v):
+                return v / (1024.0 * 1024.0)
+            in_MiBps = (to_mib(sum_in_b) / sum_union_s) if sum_union_s > 0 else 0.0
+            out_MiBps = (to_mib(sum_out_b) / sum_union_s) if sum_union_s > 0 else 0.0
             io_stats = {
-                'strict_window': {
-                    'overall_avg': {
-                        'span_s': avg_span_s,
-                        'bytes_in': total_in_bytes,
-                        'bytes_out': total_out_bytes,
-                        'MiBps_in': MiBps_in,
-                        'MiBps_out': MiBps_out,
-                        'avg_bytes_in_per_invoke': avg_in_bytes,
-                        'avg_bytes_out_per_invoke': avg_out_bytes,
+                'strict_window_analyzer': {
+                    'ratio_of_sums': {
+                        'sum_bytes_in': sum_in_b,
+                        'sum_bytes_out': sum_out_b,
+                        'sum_union_active_s': sum_union_s,
+                        'in_MiB_per_s': in_MiBps,
+                        'out_MiB_per_s': out_MiBps,
                     }
                 }
             }
-            # 暂存，供活跃窗口计速回退使用
-            _avg_in_bytes_for_active = avg_in_bytes
-            _avg_out_bytes_for_active = avg_out_bytes
 
-            # 若 unionActive 明显大于窗口，触发一次 overlap 回退以剪裁到窗口内
-            def _max_union_vs_span(_arr):
-                try:
-                    u = [float(x.get('union_active_s') or 0.0) for x in _arr]
-                    return max(u[1:], default=0.0)
-                except Exception:
-                    return 0.0
-            max_union = _max_union_vs_span(per_invoke_from_corr or [])
-            if per_invoke_from_corr and avg_span_s>0 and max_union > avg_span_s*1.10:
-                try:
-                    res_corr2 = subprocess.run([
-                        VENV_PY, corr_script, usbmon_file, invokes_file, time_map_file,
-                        "--mode", "bulk_complete", "--include", "overlap",
-                        "--extra", "0.000"
-                    ], capture_output=True, text=True, check=True)
-                    txt2 = res_corr2.stdout or ""
-                    mp2 = _re.search(r"JSON_PER_INVOKE:\s*(\[.*?\])", txt2, flags=_re.S)
-                    if mp2:
-                        per_invoke_from_corr = _json.loads(mp2.group(1))
-                        # 使用 overlap 的 JSON_SUMMARY 更新均值
-                        mjson2 = _re.search(r"JSON_SUMMARY:\s*(\{.*\})", txt2)
-                        if mjson2:
-                            js2 = _json.loads(mjson2.group(1))
-                            avg_in_bytes = float(js2.get('warm_avg_in_bytes', avg_in_bytes) or avg_in_bytes)
-                            avg_out_bytes = float(js2.get('warm_avg_out_bytes', avg_out_bytes) or avg_out_bytes)
-                            MiBps_in = (to_MiB(avg_in_bytes) / avg_span_s) if avg_span_s>0 else 0.0
-                            MiBps_out = (to_MiB(avg_out_bytes) / avg_span_s) if avg_span_s>0 else 0.0
-                            total_in_bytes = int(avg_in_bytes * total_windows)
-                            total_out_bytes = int(avg_out_bytes * total_windows)
-                            io_stats['strict_window']['overall_avg'].update({
-                                'bytes_in': total_in_bytes,
-                                'bytes_out': total_out_bytes,
-                                'MiBps_in': MiBps_in,
-                                'MiBps_out': MiBps_out,
-                                'avg_bytes_in_per_invoke': avg_in_bytes,
-                                'avg_bytes_out_per_invoke': avg_out_bytes,
-                            })
-                except Exception:
-                    pass
-        except Exception as e:
-            io_stats = {'error': f'Failed to compute IO stats (correct_per_invoke_stats): {str(e)}'}
-            per_invoke_from_corr = per_invoke_from_corr  # keep whatever parsed
-            _avg_in_bytes_for_active = 0.0
-            _avg_out_bytes_for_active = 0.0
-        # 若解析器 per_invoke 可用，则用其真并集重算纯invoke
-        if per_invoke_from_corr and invoke_times_ms:
-            try:
-                pure_invoke_times_ms = []
-                for i in range(min(len(invoke_times_ms), len(per_invoke_from_corr))):
-                    union_s = per_invoke_from_corr[i].get('union_active_s', 0.0) or 0.0
-                    io_ms = float(union_s) * 1000.0
-                    pure_invoke_times_ms.append(max(0.0, invoke_times_ms[i] - io_ms))
-                if pure_invoke_times_ms:
-                    pure_io_times_ms = pure_invoke_times_ms
-            except Exception:
-                pass
-
-        # 计算基于活跃IO的平均指标（严格；速率默认用严格）
+    # 计算基于活跃IO的平均指标（严格；速率默认用严格）
         def compute_active_union_avg(per_invoke_list):
             try:
                 if per_invoke_list and len(per_invoke_list) > 1:
@@ -546,41 +508,9 @@ def analyze_performance(outdir, model_name, seg_num):
             except Exception as e:
                 return {'note': f'active_union_avg_failed: {e}'}
 
-        # 使用“活跃时间(严格)+简化统计字节”的混合方式，计算活跃IO均值（仅严格）
+        # 使用 analyzer 结果计算活跃IO均值（严格）
         active_union_avg_strict = None
-        # 若解析器已给出逐次结果，则优先使用解析器的 per_invoke 进行活跃均值计算
-        if per_invoke_from_corr:
-            try:
-                act = per_invoke_from_corr
-                import statistics as _st
-                def _get(x,k1,k2,default=0.0):
-                    v = x.get(k1, None)
-                    return (v if v is not None else x.get(k2, default))
-                active_ms = [ (_get(x,'union_active_s','union_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]
-                avg_active_ms = _st.mean(active_ms) if active_ms else 0.0
-                avg_in_b = _avg_in_bytes_for_active
-                avg_out_b = _avg_out_bytes_for_active
-                def to_mib(v):
-                    return v / (1024.0 * 1024.0)
-                if avg_active_ms > 0:
-                    in_mib_per_ms = to_mib(avg_in_b) / avg_active_ms
-                    out_mib_per_ms = to_mib(avg_out_b) / avg_active_ms
-                else:
-                    in_mib_per_ms = out_mib_per_ms = 0.0
-                active_union_avg_strict = {
-                    'avg_active_ms': avg_active_ms,
-                    'avg_in_active_ms': _st.mean([ (_get(x,'in_active_s','in_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
-                    'avg_out_active_ms': _st.mean([ (_get(x,'out_active_s','out_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]) if act else 0.0,
-                    'avg_bytes_in_per_invoke': avg_in_b,
-                    'avg_bytes_out_per_invoke': avg_out_b,
-                    'in_MiB_per_ms': in_mib_per_ms,
-                    'out_MiB_per_ms': out_mib_per_ms,
-                    'in_MiB_per_s': in_mib_per_ms * 1000.0,
-                    'out_MiB_per_s': out_mib_per_ms * 1000.0,
-                }
-            except Exception as _e:
-                active_union_avg_strict = {'note': f'hybrid_active_union_failed: {_e}'}
-        elif active_analysis_strict and isinstance(active_analysis_strict, dict):
+        if active_analysis_strict and isinstance(active_analysis_strict, dict):
             try:
                 act = active_analysis_strict.get('per_invoke', [])
                 if act:
@@ -590,8 +520,9 @@ def analyze_performance(outdir, model_name, seg_num):
                         return (v if v is not None else x.get(k2, default))
                     active_ms = [ (_get(x,'union_active_s','union_active_span_s',0.0) or 0.0) * 1000.0 for x in act ]
                     avg_active_ms = _st.mean(active_ms) if active_ms else 0.0
-                    avg_in_b = _avg_in_bytes_for_active
-                    avg_out_b = _avg_out_bytes_for_active
+                    warm = act[1:] if len(act) > 1 else act
+                    avg_in_b = (sum((x.get('bytes_in',0) or 0) for x in warm) / len(warm)) if warm else 0.0
+                    avg_out_b = (sum((x.get('bytes_out',0) or 0) for x in warm) / len(warm)) if warm else 0.0
                     def to_mib(v):
                         return v / (1024.0 * 1024.0)
                     if avg_active_ms > 0:
@@ -613,7 +544,7 @@ def analyze_performance(outdir, model_name, seg_num):
             except Exception as _e:
                 active_union_avg_strict = {'note': f'hybrid_active_union_failed: {_e}'}
         
-        # 生成综合报告
+    # 生成综合报告
         summary = {
             'model_name': f"{model_name}_seg{seg_num}",
             'segment_number': seg_num,
@@ -626,57 +557,31 @@ def analyze_performance(outdir, model_name, seg_num):
         # 保存摘要
         with open(summary_file, 'w') as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
-        
-        # 显示关键性能指标
-        inf = summary.get('inference_performance', {})
-        invoke_perf = inf.get('invoke_times', {})
-        pure_invoke_perf = inf.get('pure_invoke_times', {})
-        io_strict = summary.get('io_performance', {}).get('strict_window', {}).get('overall_avg', {})
-        io_active_union_avg_strict = active_union_avg_strict or {}
-        
-        print(f"--- {model_name} seg{seg_num} 性能摘要 ---")
-        print(f"Invoke时间: 平均 {invoke_perf.get('mean_ms', 0):.2f}ms, 标准差 {invoke_perf.get('stdev_ms', 0):.2f}ms")
-        print(f"纯Invoke时间: 平均 {pure_invoke_perf.get('mean_ms', 0):.2f}ms, 标准差 {pure_invoke_perf.get('stdev_ms', 0):.2f}ms")
-        print(f"数据传输: IN {io_strict.get('avg_bytes_in_per_invoke', 0)/1024/1024:.3f}MiB/次, OUT {io_strict.get('avg_bytes_out_per_invoke', 0)/1024/1024:.3f}MiB/次")
-        # 窗口平均速率（MiB/s）
-        print(f"窗口平均速率(严格): IN {io_strict.get('MiBps_in', 0):.2f}MiB/s, OUT {io_strict.get('MiBps_out', 0):.2f}MiB/s")
-        # 打印严格指标
-        print(
-            f"活跃IO均值(严格): {io_active_union_avg_strict.get('avg_active_ms', 0):.2f}ms, "
-            f"IN {io_active_union_avg_strict.get('avg_in_active_ms', 0):.2f}ms, "
-            f"OUT {io_active_union_avg_strict.get('avg_out_active_ms', 0):.2f}ms, "
-            f"IN {io_active_union_avg_strict.get('avg_bytes_in_per_invoke', 0)/1024:.1f}KB/次, "
-            f"OUT {io_active_union_avg_strict.get('avg_bytes_out_per_invoke', 0)/1024:.1f}KB/次"
-        )
-        # 按活跃窗口计速（严格，MiB/s）：以活跃窗口作为分母
+        # 也附带一份分析相关 meta，便于追溯
         try:
-            _avg_active_ms = float(io_active_union_avg_strict.get('avg_active_ms', 0) or 0)
-            _avg_in_active_ms = float(io_active_union_avg_strict.get('avg_in_active_ms', 0) or 0)
-            _avg_out_active_ms = float(io_active_union_avg_strict.get('avg_out_active_ms', 0) or 0)
-            _avg_active_s = _avg_active_ms / 1000.0 if _avg_active_ms else 0.0
-            _avg_in_active_s = _avg_in_active_ms / 1000.0 if _avg_in_active_ms else 0.0
-            _avg_out_active_s = _avg_out_active_ms / 1000.0 if _avg_out_active_ms else 0.0
-            _avg_in_bytes = float(io_active_union_avg_strict.get('avg_bytes_in_per_invoke', 0) or 0)
-            _avg_out_bytes = float(io_active_union_avg_strict.get('avg_bytes_out_per_invoke', 0) or 0)
-            _in_mib = _avg_in_bytes / (1024.0 * 1024.0)
-            _out_mib = _avg_out_bytes / (1024.0 * 1024.0)
-            # 按方向以各自活跃时长为分母；UNION 以联合活跃时长为分母
-            _in_mibps_act = (_in_mib / _avg_in_active_s) if _avg_in_active_s > 0 else 0.0
-            _out_mibps_act = (_out_mib / _avg_out_active_s) if _avg_out_active_s > 0 else 0.0
-            _union_mibps_act = ((_in_mib + _out_mib) / _avg_active_s) if _avg_active_s > 0 else 0.0
-            print(
-                f"按活跃窗口计速(严格): IN {_in_mibps_act:.2f}MiB/s, OUT {_out_mibps_act:.2f}MiB/s, UNION {_union_mibps_act:.2f}MiB/s"
-            )
+            meta = {
+                'window_meta': (active_analysis_strict or {}).get('window_meta', {}),
+                'run_env': run_env or {
+                    k: os.environ.get(k) for k in [
+                        'INVOKE_GAP_MS','COUNT','CAP_DUR','STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
+                        'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV',
+                        'MUTATE_INPUT','OFFCHIP_THEORY_OUT_BYTES','OFFCHIP_OUT_MIBPS'
+                    ]
+                }
+            }
+            with open(os.path.join(outdir, 'analysis_meta.json'), 'w') as mf:
+                json.dump(meta, mf, indent=2, ensure_ascii=False)
         except Exception:
             pass
-        # 活跃时长仍展示占用
-        # 已禁用宽松窗口输出
-        print()
-        
+
         return summary
-        
     except Exception as e:
-        print(f"性能分析失败: {e}")
+        # 失败时输出最小化信息，便于排查
+        try:
+            with open(os.path.join(outdir, 'analysis_error.txt'), 'w') as ef:
+                ef.write(str(e))
+        except Exception:
+            pass
         return None
 
 def generate_model_summary(model_results_dir, model_name):
@@ -704,12 +609,26 @@ def generate_model_summary(model_results_dir, model_name):
         if 'error' not in seg_data:
             inf_perf = seg_data.get('inference_performance', {})
             pure_invoke_perf = inf_perf.get('pure_invoke_times', {})
-            io_perf = seg_data.get('io_performance', {}).get('strict_window', {}).get('overall_avg', {})
-            
-            total_inference_time += pure_invoke_perf.get('mean_ms', 0)  # 使用纯invoke时间（invoke-IO活跃时间）
-            total_bytes_in += io_perf.get('avg_bytes_in_per_invoke', 0)
-            total_bytes_out += io_perf.get('avg_bytes_out_per_invoke', 0)
-            valid_segments += 1
+            io_root = seg_data.get('io_performance', {})
+            # 新口径：strict_window_analyzer.ratio_of_sums
+            ratio = io_root.get('strict_window_analyzer', {}).get('ratio_of_sums', {})
+            if ratio:
+                # 估算每次平均字节（仅用于聚合展示，不用于速率）
+                total_inference_time += pure_invoke_perf.get('mean_ms', 0)
+                inv_count = seg_data.get('inference_performance', {}).get('invoke_times', {}).get('all_ms', [])
+                n = len(inv_count) if isinstance(inv_count, list) else 0
+                avg_in = (ratio.get('sum_bytes_in', 0)/max(1,n)) if n>0 else 0
+                avg_out = (ratio.get('sum_bytes_out', 0)/max(1,n)) if n>0 else 0
+                total_bytes_in += avg_in
+                total_bytes_out += avg_out
+                valid_segments += 1
+            else:
+                # 旧口径回退
+                io_perf = io_root.get('strict_window', {}).get('overall_avg', {})
+                total_inference_time += pure_invoke_perf.get('mean_ms', 0)
+                total_bytes_in += io_perf.get('avg_bytes_in_per_invoke', 0)
+                total_bytes_out += io_perf.get('avg_bytes_out_per_invoke', 0)
+                valid_segments += 1
     
     summary = {
         'model_name': model_name,
@@ -767,130 +686,92 @@ def main():
         sys.stdout.reconfigure(line_buffering=True)
     except Exception:
         pass
-    print("==========================================")
-    print("开始批量测试 models_local 中的所有模型 或 单模型目录")
-    print("==========================================")
+    parser = argparse.ArgumentParser(description='Batch EdgeTPU usbmon test (analyzer-first).')
+    parser.add_argument('--model-dir', type=str, default=None, help='Directory containing segN.tflite for custom segment tests')
+    parser.add_argument('--outdir', type=str, default=None, help='Output base directory override')
+    parser.add_argument('--model-name', type=str, default=None, help='Logical model name for custom tests')
+    parser.add_argument('--segs', type=str, default=None, help='Segments selection, e.g. "0-3" or "1,3"')
+    args, unknown = parser.parse_known_args()
 
-    # CLI：支持单模型目录与自定义输出目录
-    parser = argparse.ArgumentParser(description='models_local 批量/单模型 usbmon 采集与分析')
-    parser.add_argument('--model-dir', dest='single_model_dir', default=None,
-                        help='单模型目录（包含 seg*.tflite，例如 seg0.tflite、seg1.tflite）')
-    parser.add_argument('--outdir', dest='single_outdir', default=None,
-                        help='自定义输出根目录（将创建 segX 子目录）')
-    parser.add_argument('--model-name', dest='single_model_name', default=None,
-                        help='单模型名称标签（用于结果标注，默认取目录名）')
-    parser.add_argument('--segs', dest='single_segs', default=None,
-                        help='仅测试的分段列表，例如 "0-3" 或 "0,1,2,3"；留空则自动扫描 seg*.tflite')
-    args, _ = parser.parse_known_args()
+    print("==========================================")
+    print("开始批量测试")
+    print("==========================================")
     
     # 检查依赖
     check_dependencies()
-
+    
+    # 创建结果目录（按模式分目录，避免覆盖）
+    results_base = args.outdir if args.outdir else get_results_base()
+    os.makedirs(results_base, exist_ok=True)
+    
     # 获取USB总线号
     bus = get_usb_bus()
     print(f"使用 USB 总线: {bus}")
-
-    # 单模型自定义模式
-    if args.single_model_dir and args.single_outdir:
-        single_dir = os.path.abspath(args.single_model_dir)
-        out_root = os.path.abspath(args.single_outdir)
-        model_name = args.single_model_name or os.path.basename(single_dir.rstrip('/'))
-
-        # 解析 seg 列表：优先 --segs，否则扫描 seg*.tflite
+    
+    # 自定义 segment 目录模式
+    custom_mode = bool(args.model_dir)
+    if custom_mode:
+        model_dir = os.path.abspath(args.model_dir)
+        if not os.path.isdir(model_dir):
+            print(f"错误：--model-dir 不存在: {model_dir}")
+            sys.exit(1)
+        model_name = args.model_name or os.path.basename(model_dir.rstrip('/'))
+        # 解析 segs
         seg_list = []
-        if args.single_segs:
-            toks = [t.strip() for t in args.single_segs.split(',') if t.strip()]
+        if args.segs:
+            toks = [t.strip() for t in args.segs.split(',') if t.strip()]
             for t in toks:
                 if '-' in t:
-                    a, b = t.split('-', 1)
+                    a,b = t.split('-',1)
                     try:
                         a = int(a); b = int(b)
                         if a <= b:
-                            seg_list.extend(list(range(a, b + 1)))
+                            seg_list.extend(list(range(a, b+1)))
                     except Exception:
                         pass
                 else:
                     try:
-                        seg_list.append(int(t))
+                        v = int(t)
+                        seg_list.append(v)
                     except Exception:
                         pass
-            seg_list = sorted(set(seg_list))
-        else:
-            for p in glob.glob(os.path.join(single_dir, 'seg*.tflite')):
+        if not seg_list:
+            # 默认根据目录内 seg*.tflite 推断
+            for p in sorted(glob.glob(os.path.join(model_dir, 'seg*.tflite'))):
                 base = os.path.basename(p)
                 m = None
                 try:
-                    # 支持 seg{num}.tflite 或 seg{num}_*.tflite
-                    m = [int(''.join(ch for ch in base.split('.')[0] if ch.isdigit()))]
+                    import re as _re
+                    m = _re.search(r"seg(\d+)\\.tflite$", base)
                 except Exception:
                     m = None
                 if m:
-                    seg_list.extend(m)
-            seg_list = sorted(set(seg_list))
-
-        if not seg_list:
-            print(f"未找到分段文件：{single_dir}/seg*.tflite")
-            sys.exit(1)
-
-        print(f"单模型模式: {model_name}")
-        print(f"模型目录: {single_dir}")
-        print(f"输出目录: {out_root}")
-        print(f"分段: {seg_list}")
-
-        os.makedirs(out_root, exist_ok=True)
-        models = [model_name]
-
+                    seg_list.append(int(m.group(1)))
+        seg_list = sorted(set(seg_list))
+        print(f"自定义模式: {model_name} @ {model_dir}，测试分段: {seg_list}")
+        # 运行自定义分段
+        bus = get_usb_bus()
+        print(f"使用 USB 总线: {bus}")
+        model_results = results_base if args.outdir else os.path.join(results_base, model_name)
+        os.makedirs(model_results, exist_ok=True)
         for seg_num in seg_list:
-            # 支持 seg{n}.tflite 或 seg{n}_*.tflite（优先精确匹配）
-            candidates = [
-                os.path.join(single_dir, f"seg{seg_num}.tflite")
-            ] + sorted(glob.glob(os.path.join(single_dir, f"seg{seg_num}_*.tflite")))
-            model_file = next((p for p in candidates if os.path.exists(p)), None)
-            outdir = os.path.join(out_root, f"seg{seg_num}")
-
-            if not model_file:
-                print(f"跳过：模型文件不存在 seg{seg_num}（{single_dir}）")
+            model_file = os.path.join(model_dir, f"seg{seg_num}.tflite")
+            outdir = os.path.join(model_results, f"seg{seg_num}")
+            if not os.path.isfile(model_file):
+                print(f"跳过：模型文件不存在 {model_file}")
                 continue
-
             os.makedirs(outdir, exist_ok=True)
-            print(f"=== 测试 {model_name} seg{seg_num} -> {outdir} ===")
             if run_segment_test(model_name, seg_num, model_file, bus, outdir):
                 analyze_performance(outdir, model_name, seg_num)
-
-        # 生成简单摘要
-        print(f"=== 生成 {model_name} 简要摘要（通配 seg*） ===")
-        # 复用批量摘要生成但遍历 seg* 目录
-        segments_data = {}
-        for seg_path in sorted(glob.glob(os.path.join(out_root, 'seg*'))):
-            perf_file = os.path.join(seg_path, 'performance_summary.json')
-            seg_key = os.path.basename(seg_path)
-            if os.path.exists(perf_file):
-                try:
-                    with open(perf_file) as f:
-                        seg_data = json.load(f)
-                    segments_data[seg_key] = seg_data
-                except Exception as e:
-                    segments_data[seg_key] = {'error': str(e)}
-        model_summary = {
-            'model_name': model_name,
-            'segments': list(segments_data.keys()),
-        }
-        with open(os.path.join(out_root, 'model_summary.json'), 'w') as f:
-            json.dump(model_summary, f, indent=2, ensure_ascii=False)
-
-        print(f"单模型完成，结果在: {out_root}")
+        # 自定义模式下不生成 1..8 的模型摘要
+        print(f"自定义分段测试完成，结果在: {model_results}")
         return
-
-    # 批量模式（原始逻辑）
-    # 创建结果目录（按模式分目录，避免覆盖）
-    results_base = get_results_base()
-    os.makedirs(results_base, exist_ok=True)
 
     # 查找所有模型
     models = find_models()
     print(f"找到 {len(models)} 个模型: {', '.join(models)}")
     print()
-
+    
     # 遍历每个模型
     for model_name in models:
         print("=" * 50)

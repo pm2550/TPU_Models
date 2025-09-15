@@ -87,11 +87,29 @@ except Exception:
 open(tm_path,'w').write(json.dumps({'usbmon_ref': usb_ts, 'boottime_ref': bt_ref}))
 PY
 
-# 采集前预留窗口（默认 1s，缩短等待以尽快产生首条usbmon行）
-sleep "${LEAD_S:-1}"
+# 等待 time_map.json 就绪（包含 usbmon_ref 与 boottime_ref）
+"$PY_MAP" - "$TM" <<'PY'
+import json,sys,time,os
+tm_path=sys.argv[1]
+deadline=time.time()+30.0
+ready=False
+while time.time()<deadline and not ready:
+    try:
+        j=json.load(open(tm_path))
+        ready=(j.get('usbmon_ref') is not None) and (j.get('boottime_ref') is not None)
+    except Exception:
+        ready=False
+    if not ready:
+        time.sleep(0.02)
+print('time_map_ready=', ready)
+if not ready:
+    print('警告: time_map 同步失败，结果可能不准确')
+PY
+
+# 采集前预留窗口（可通过 LEAD_S 指定，默认 3）
+sleep "${LEAD_S:-3}"
 
 # 运行模型：记录 COUNT 次 invoke 的 EPOCH 窗口（CLOCK_BOOTTIME）
-# 注意：为了尽快生成 usbmon 首条记录，运行阶段将真实触发 set/invoke/get
 "$RUN_PY" - "$MODEL_PATH" <<'PY' > "$IV"
 import json, time, numpy as np, sys, os
 m=sys.argv[1]
@@ -191,26 +209,8 @@ sleep 0.1 || true
 cat "$PW" | sudo -S -p '' chown "$USER:$USER" "$CAP" "$TM" "$IV" 2>/dev/null || true
 cat "$PW" | sudo -S -p '' chmod 0644 "$CAP" "$TM" "$IV" 2>/dev/null || true
 
-# 在模型已运行后再等待 time_map.json 就绪（此时应已有 usbmon 首条行）
-"$PY_MAP" - "$TM" <<'PY'
-import json,sys,time,os
-tm_path=sys.argv[1]
-deadline=time.time()+15.0
-ready=False
-while time.time()<deadline and not ready:
-    try:
-        j=json.load(open(tm_path))
-        ready=(j.get('usbmon_ref') is not None) and (j.get('boottime_ref') is not None)
-    except Exception:
-        ready=False
-    if not ready:
-        time.sleep(0.02)
-print('time_map_ready=', ready)
-if not ready:
-    print('警告: time_map 同步失败，结果可能不准确')
-PY
-
-# 分析（权威口径）：调用 tools/correct_per_invoke_stats.py（仅Bi/Bo、URB配对只计C）并输出严格/overlap两套结果
+# 分析（可选快速口径）：默认禁用；设置 ONLY_ANALYZER=0 可启用快速口径以兼容旧流程
+if [[ "${ONLY_ANALYZER:-1}" != "1" ]]; then
 "$PY_ANALYZE" - <<'PY' | tee "$OUT_JSON"
 import json, os, re, subprocess
 CAP=r"$CAP"; IV=r"$IV"; TM=r"$TM"; OUTDIR=r"$OUTDIR"
@@ -261,5 +261,19 @@ else:
 PY
 
 echo "完成，输出: $OUT_JSON"
+fi
+
+# 运行严格窗口分析器（权威口径），生成 active_analysis_strict.json 便于后续统一消费
+ANA_PY="/home/10210/Desktop/OS/analyze_usbmon_active.py"
+if [[ -f "$ANA_PY" ]]; then
+    echo "运行严格窗口分析器: $ANA_PY"
+    STRICT_INVOKE_WINDOW="${STRICT_INVOKE_WINDOW:-1}" \
+    SHIFT_POLICY="${SHIFT_POLICY:-in_tail_or_out_head}" \
+    CLUSTER_GAP_MS="${CLUSTER_GAP_MS:-0.1}" \
+    SEARCH_TAIL_MS="${SEARCH_TAIL_MS:-20}" \
+    SEARCH_HEAD_MS="${SEARCH_HEAD_MS:-10}" \
+    MAX_SHIFT_MS="${MAX_SHIFT_MS:-30}" \
+    "$PY_ANALYZE" "$ANA_PY" "$CAP" "$IV" "$TM" > "$OUTDIR/active_analysis_strict.json" || echo "严格分析器执行失败，已跳过"
+fi
 
 
