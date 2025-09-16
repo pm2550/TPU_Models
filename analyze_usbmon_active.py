@@ -17,8 +17,9 @@
 - pure_ms_in_only = invoke_ms - in_union_cluster_ms（仅扣 IN 的 C 聚簇，可作为流式口径参考）。
 
 可选 off-chip 校正（实验特性）：
-- 若设置了 OFFCHIP_IN_THEORY_MIBPS（或兼容变量 OFFCHIP_IN_MIBPS），
-    则计算 Δt = bytes_in/当前IN速率 − bytes_in/理论IN速率，并把 max(0, Δt) 以毫秒加回 pure_compute_ms，得到 pure_compute_offchip_adj_ms。
+- 若设置了 OFFCHIP_OUT_THEORY_MIBPS（或兼容变量 OFFCHIP_OUT_MIBPS），
+        则计算 Δt = bytes_out/当前OUT速率 − bytes_out/理论OUT速率，并把 max(0, Δt) 以毫秒加回 pure_compute_ms，得到 pure_compute_offchip_adj_ms。
+        若未显式提供且开启 OFFCHIP_ENABLE，则默认理论速率为 320 MiB/s。
 """
 
 import json
@@ -1063,16 +1064,16 @@ def main():
             except Exception:
                 return default
 
-        # 理论 IN 速率（MiB/s）：优先 OFFCHIP_IN_THEORY_MIBPS，兼容 OFFCHIP_IN_MIBPS
-        theory_in_mibps = _env_float('OFFCHIP_IN_THEORY_MIBPS', None)
-        if theory_in_mibps is None:
-            theory_in_mibps = _env_float('OFFCHIP_IN_MIBPS', None)
+        # 理论 OUT 速率（MiB/s）：优先 OFFCHIP_OUT_THEORY_MIBPS，兼容 OFFCHIP_OUT_MIBPS
+        theory_out_mibps = _env_float('OFFCHIP_OUT_THEORY_MIBPS', None)
+        if theory_out_mibps is None:
+            theory_out_mibps = _env_float('OFFCHIP_OUT_MIBPS', None)
         # 可选开关：仅当 OFFCHIP_ENABLE 为真时启用默认值（避免对所有模型强制校正）
         offchip_enable = (os.environ.get('OFFCHIP_ENABLE', '0').strip().lower() in ('1','true','yes','on'))
-        if offchip_enable and theory_in_mibps is None:
-            # 支持以 MiB/ms 提供默认或自定义（统一 MiB 单位），默认 0.0164 MiB/ms => 16.4 MiB/s
-            per_ms = _env_float('OFFCHIP_IN_THEORY_MIB_PER_MS', 0.0164)
-            theory_in_mibps = per_ms * 1000.0
+        if offchip_enable and theory_out_mibps is None:
+            # 默认 320 MiB/s；若显式提供 MiB/ms 再换算
+            per_ms = _env_float('OFFCHIP_OUT_THEORY_MIB_PER_MS', None)
+            theory_out_mibps = 320.0 if per_ms is None else (per_ms * 1000.0)
 
         # 可选：在并集口径上桥接小间隙（毫秒）。例如 0.1 表示 <=0.1ms 的空隙视为连续
         try:
@@ -1258,15 +1259,15 @@ def main():
             except Exception:
                 rec['in_carry_from_prev_ms'] = None
 
-            # off-chip 调整（可选）：给定理论 IN 速率，按 bytes_in/当前速率 − bytes_in/理论速率 的非负差值加回
-            # 当前速率优先采用 span 口径（MiB/s），统一 MiB 单位
-            if theory_in_mibps is not None and theory_in_mibps > 0:
+            # off-chip 调整（可选）：给定理论 OUT 速率，按 bytes_out/当前速率 − bytes_out/理论速率 的非负差值加回
+            # 当前速率优先采用 OUT 的 span 口径（MiB/s），统一 MiB 单位
+            if theory_out_mibps is not None and theory_out_mibps > 0:
                 try:
-                    cur_mibps = rec.get('in_speed_span_mibps') or rec.get('in_speed_mibps')
+                    cur_mibps = rec.get('out_speed_span_mibps') or rec.get('out_speed_mibps')
                     if cur_mibps and cur_mibps > 0:
-                        miB_in = (float(rec.get('bytes_in', 0) or 0)) / (1024.0 * 1024.0)
-                        t_cur = miB_in / cur_mibps
-                        t_th  = miB_in / theory_in_mibps
+                        miB_out = (float(rec.get('bytes_out', 0) or 0)) / (1024.0 * 1024.0)
+                        t_cur = miB_out / cur_mibps
+                        t_th  = miB_out / theory_out_mibps
                         delta_ms = max(0.0, (t_cur - t_th) * 1000.0)
                         rec['pure_compute_offchip_adj_ms'] = pure_compute_ms + delta_ms
                     else:

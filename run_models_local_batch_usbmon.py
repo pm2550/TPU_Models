@@ -7,6 +7,9 @@
 - 替换了有问题的 analyze_usbmon_active.py URB配对算法
 - 使用 show_overlap_positions.py 的逐窗口事件解析方法
 - 提供真实准确的IN/OUT重叠计算，而非错误的"重叠=OUT时长"
+
+范例：python3 - << 'PY' import json, statistics as st, osSTRICT_INVOKE_WINDOW=1 SHIFT_POLICY=in_tail_or_out_head CLUSTER_GAP_MS=0.1 MAX_SHIFT_MS=12 SEARCH_TAIL_MS=12 SEARCH_HEAD_MS=6 MIN_URBpython3 - << 'PY'                                                                                   import json, statistics as st    USB_BUS=2 COUNT=20 INVOKE_GAP_MS=50 CAP_DUR=45 STRICT_INVOKE_WINDOW=1 SHIFT_POLICY=in_tail_or_out_head CLUSTER_GAP_MS=0.1 MIN_URB_BYTONLY_MODELS=densenet201_8seg_uniform_local python3 /home/10210/Desktop/OS/tools/collect_pure_times_from_results.py
+
 """
 
 import os
@@ -129,7 +132,9 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
             'COUNT','INVOKE_GAP_MS','CAP_DUR',
             'STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
             'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV',
-            'MUTATE_INPUT','OFFCHIP_THEORY_OUT_BYTES','OFFCHIP_OUT_MIBPS'
+            # off-chip 修正相关（记录用于复现）
+            'OFFCHIP_ENABLE','OFFCHIP_OUT_THEORY_MIBPS','OFFCHIP_OUT_MIBPS','OFFCHIP_OUT_THEORY_MIB_PER_MS',
+            'MUTATE_INPUT'
         ]
         meta = {k: env.get(k) for k in keys}
         meta.update({
@@ -342,7 +347,9 @@ def analyze_performance(outdir, model_name, seg_num):
                 if run_env and isinstance(run_env, dict):
                     for k in [
                         'STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
-                        'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV'
+                        'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV',
+                        # 传递 off-chip 校正环境
+                        'OFFCHIP_ENABLE','OFFCHIP_OUT_THEORY_MIBPS','OFFCHIP_OUT_MIBPS','OFFCHIP_OUT_THEORY_MIB_PER_MS'
                     ]:
                         v = run_env.get(k)
                         if v is not None:
@@ -350,6 +357,8 @@ def analyze_performance(outdir, model_name, seg_num):
                 env_ana.setdefault('STRICT_INVOKE_WINDOW', '1')
                 env_ana.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
                 env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
+                # 开启 off-chip 校正的默认值；未提供理论速率时 analyzer 默认 320 MiB/s
+                env_ana.setdefault('OFFCHIP_ENABLE', '1')
                 res_ana = subprocess.run(
                     [SYS_PY, ana_script, usbmon_file, invokes_file, time_map_file],
                     capture_output=True, text=True, check=True, env=env_ana
@@ -415,7 +424,9 @@ def analyze_performance(outdir, model_name, seg_num):
                     if run_env and isinstance(run_env, dict):
                         for k in [
                             'STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
-                            'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV'
+                            'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV',
+                            # 传递 off-chip 校正环境
+                            'OFFCHIP_ENABLE','OFFCHIP_OUT_THEORY_MIBPS','OFFCHIP_OUT_MIBPS','OFFCHIP_OUT_THEORY_MIB_PER_MS'
                         ]:
                             v = run_env.get(k)
                             if v is not None:
@@ -423,7 +434,11 @@ def analyze_performance(outdir, model_name, seg_num):
                     env_ana.setdefault('STRICT_INVOKE_WINDOW', '1')
                     env_ana.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
                     env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
-                    res_ana = subprocess.run([SYS_PY, ana_script, usbmon_file, invokes_file, time_map_file], capture_output=True, text=True, check=True, env=env_ana)
+                    env_ana.setdefault('OFFCHIP_ENABLE', '1')
+                    res_ana = subprocess.run(
+                        [SYS_PY, ana_script, usbmon_file, invokes_file, time_map_file],
+                        capture_output=True, text=True, check=True, env=env_ana
+                    )
                     ana_out = res_ana.stdout or ""
                     active_analysis_strict = json.loads(ana_out)
                     with open(active_analysis_strict_file, 'w') as _fo:
@@ -565,7 +580,8 @@ def analyze_performance(outdir, model_name, seg_num):
                     k: os.environ.get(k) for k in [
                         'INVOKE_GAP_MS','COUNT','CAP_DUR','STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
                         'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV',
-                        'MUTATE_INPUT','OFFCHIP_THEORY_OUT_BYTES','OFFCHIP_OUT_MIBPS'
+                        'OFFCHIP_ENABLE','OFFCHIP_OUT_THEORY_MIBPS','OFFCHIP_OUT_MIBPS','OFFCHIP_OUT_THEORY_MIB_PER_MS',
+                        'MUTATE_INPUT'
                     ]
                 }
             }
