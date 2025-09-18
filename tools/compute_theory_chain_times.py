@@ -10,12 +10,22 @@ THEORY_SEG = BASE/'five_models/baselines/theory_io_seg.json'
 PURE_CSV = BASE/'five_models/results/single_pure_invoke_times.csv'
 OUT_CSV = BASE/'five_models/results/theory_chain_times.csv'
 PURE_COMBINED = BASE/'results/models_local_batch_usbmon/single/combined_pure_gap_seg1-8_summary.csv'
+SPAN_SUMMARY = BASE/'results/models_local_batch_usbmon/single/combined_summary_span.json'
 
 # Config: effective link bandwidths (MiB/s)
 # Per user's latest instruction: B_in = 320 (h2d), B_out = 60 (d2h)
 B_IN = 330.0
 B_OUT = 60.0
 EPS_MS = 0.0   # small overhead per segment (ignored by default)
+
+# Host-side handling model (function of in_span per segment):
+# Option A (default): per-model intercept Th(model) and global slope kappa
+#   Delta_i = Th(model) + kappa * U_in_i
+# Option B: global intercept HOST_C_MS and global slope kappa
+#   Delta_i = HOST_C_MS + kappa * U_in_i
+KAPPA_MS_PER_MS = 0.2992134815732149
+HOST_C_MS = 0.5527747236073199
+USE_PER_MODEL_THOST = False
 
 MODELS = [
     'densenet201_8seg_uniform_local',
@@ -62,6 +72,60 @@ def read_segments():
             }
         S[m] = norm
     return S
+
+def read_in_span_ms():
+    """Read per-segment input envelope span (ms). Returns {model:{segX: in_span_ms_mean}}"""
+    if not SPAN_SUMMARY.exists():
+        return {}
+    try:
+        J = json.loads(SPAN_SUMMARY.read_text())
+    except Exception:
+        return {}
+    M = {}
+    for m, obj in J.items():
+        segs = obj or {}
+        mm = {}
+        for seg, sd in segs.items():
+            try:
+                mm[seg] = float(sd.get('in_span_ms_mean') or 0.0)
+            except Exception:
+                mm[seg] = 0.0
+        M[m] = mm
+    return M
+
+def read_T_host_per_model(kappa: float) -> dict:
+    """Estimate per-model Th(host) as mean(delta - kappa*in_span_ms) over that model's rows.
+    Falls back to HOST_C_MS if data missing.
+    Returns {model: T_host_ms}
+    """
+    T = {m: HOST_C_MS for m in MODELS}
+    from pathlib import Path as _P
+    dm = BASE/'results/envelope_delta_merged.csv'
+    if not dm.exists():
+        return T
+    try:
+        rows = []
+        with dm.open() as f:
+            rd = csv.DictReader(f)
+            for r in rd:
+                rows.append(r)
+        by_model = {m: [] for m in MODELS}
+        for r in rows:
+            m = r.get('model')
+            if m not in by_model:
+                continue
+            try:
+                delta = float(r.get('pre_delta') or 0.0)
+                in_ms = float(r.get('in_span_ms') or 0.0)
+            except Exception:
+                continue
+            by_model[m].append(delta - kappa*in_ms)
+        for m, vals in by_model.items():
+            if vals:
+                T[m] = sum(vals)/len(vals)
+    except Exception:
+        pass
+    return T
 
 def read_pure_times():
     """Read final pure times from CSV (pure_ms_final preferred). Returns {model:{segX: ms}}"""
@@ -208,15 +272,12 @@ def mib_to_bytes(mib: float) -> float:
 
 
 def compute_chain_times():
-    # Ensure CSV has the latest measured span-based pure values before computing
-    try:
-        import subprocess, sys
-        subprocess.run([sys.executable, str(BASE/'tools/update_pure_from_offchip_span.py')], check=True)
-    except Exception as e:
-        # Non-fatal: proceed with existing CSV if updater fails
-        print('Warn: failed to refresh CSV from offchip_summary_span.json:', e)
+    # Do not mutate or refresh the pure CSV here; only read existing values.
     combos = read_combos()
     segments = read_segments()
+    in_span = read_in_span_ms()
+    # Prepare Th(host) per model if enabled
+    T_host = read_T_host_per_model(KAPPA_MS_PER_MS) if USE_PER_MODEL_THOST else {m: HOST_C_MS for m in MODELS}
     # 使用 CSV 中的最终纯推理时间，不再在此处改写或再调整
     P = read_pure_times()
     out_rows = []
@@ -250,6 +311,7 @@ def compute_chain_times():
             total_lb_ms = 0.0
             total_ub_ms = 0.0
             notes = []
+            total_host_delta_ms = 0.0
             for gi, (gname, gd) in enumerate(groups_def.items(), start=1):
                 # IO sizes (bytes) – use base_input_bytes/base_output_bytes
                 d_in = float(gd.get('base_input_bytes') or 0.0)
@@ -277,11 +339,31 @@ def compute_chain_times():
                 t_rem_lb_ms = max(t_rem_ms_raw - Ce_ms, 0.0)
                 t_rem_ub_ms = t_rem_ms_raw
 
+                # Host-side overhead for this group: choose U_in policy
+                seg_count = len(segs)
+                # Policy: for groups like 'segXto8', use only the last segment's in_span (e.g., seg8);
+                # otherwise, sum in_span across the group's segments.
+                use_last_only = ('to8' in gname)
+                if use_last_only:
+                    last_seg = segs[-1] if segs else None
+                    Uin_used_ms = (in_span.get(model, {}) or {}).get(last_seg, 0.0) if last_seg else 0.0
+                else:
+                    Uin_used_ms = sum((in_span.get(model, {}) or {}).get(seg, 0.0) for seg in segs)
+                Th_ms = T_host.get(model, HOST_C_MS)
+                # Group host delta: one invoke per group (not per segment)
+                group_invokes = 1
+                delta_host_ms = group_invokes * Th_ms + KAPPA_MS_PER_MS * Uin_used_ms
+
                 # Group makespan bounds
                 Wi_lb_ms = Cin_ms + Cout_ms + Ce_ms + t_warm_ms + t_rem_lb_ms + EPS_MS
                 Wi_ub_ms = Cin_ms + Cout_ms + Ce_ms + t_warm_ms + t_rem_ub_ms + EPS_MS
+                Wi_lb_host_ms = Wi_lb_ms + delta_host_ms
+                Wi_ub_host_ms = Wi_ub_ms + delta_host_ms
                 total_lb_ms += Wi_lb_ms
                 total_ub_ms += Wi_ub_ms
+                total_host_delta_ms += delta_host_ms
+                # For CSV simplicity: expose only full host delta as Th_ms (per-group total)
+                Th_ms_per_invoke = Th_ms
 
                 out_rows.append({
                     'model': model,
@@ -297,6 +379,9 @@ def compute_chain_times():
                     't_rem_ub_ms': round(t_rem_ub_ms, 3),
                     'Wi_lb_ms': round(Wi_lb_ms, 3),
                     'Wi_ub_ms': round(Wi_ub_ms, 3),
+                    'Th_ms': round(delta_host_ms, 3),
+                    'Wi_lb_ms_hosted': round(Wi_lb_host_ms, 3),
+                    'Wi_ub_ms_hosted': round(Wi_ub_host_ms, 3),
                     'w_warm_MiB': round(w_warm_mib, 3),
                     'w_rem_MiB': round(w_rem_mib, 3),
                     'notes': ';'.join(notes),
@@ -317,6 +402,9 @@ def compute_chain_times():
                 't_rem_ub_ms': '',
                 'Wi_lb_ms': round(total_lb_ms, 3),
                 'Wi_ub_ms': round(total_ub_ms, 3),
+                'Th_ms': round(total_host_delta_ms, 3),
+                'Wi_lb_ms_hosted': round(total_lb_ms + total_host_delta_ms, 3),
+                'Wi_ub_ms_hosted': round(total_ub_ms + total_host_delta_ms, 3),
                 'w_warm_MiB': '',
                 'w_rem_MiB': '',
                 'notes': ';'.join(notes),
@@ -329,7 +417,9 @@ def compute_chain_times():
             fieldnames=[
                 'model','K','group_index','group_name','group_segs',
                 'Cin_ms','Cout_ms','Ce_ms','t_warm_ms','t_rem_lb_ms','t_rem_ub_ms',
-                'Wi_lb_ms','Wi_ub_ms','w_warm_MiB','w_rem_MiB','notes'
+                'Wi_lb_ms','Wi_ub_ms',
+                'Th_ms','Wi_lb_ms_hosted','Wi_ub_ms_hosted',
+                'w_warm_MiB','w_rem_MiB','notes'
             ]
         )
         w.writeheader()

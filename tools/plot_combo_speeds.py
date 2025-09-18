@@ -50,8 +50,9 @@ def load_theory_times():
         model = r['model']
         try:
             K = int(r['K'])
-            Wi_lb = float(r['Wi_lb_ms'])
-            Wi_ub = float(r['Wi_ub_ms'])
+            # Use hosted bounds so plots reflect host-side overhead
+            Wi_lb = float(r['Wi_lb_ms_hosted'])
+            Wi_ub = float(r['Wi_ub_ms_hosted'])
         except Exception:
             continue
         lb[(model, K)] = Wi_lb

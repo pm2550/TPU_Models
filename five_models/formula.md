@@ -72,3 +72,31 @@ $$ \widecheck{W_i} = C^{in}_i + C^{out}_i + C^e_i + t^{warm}_i + t^{rem}_i + \ep
 $$ \widehat{W_i} = C^{in}_i + C^{out}_i + C^e_i + t^{warm}_i + \frac{w^{rem}_i}{B^{h2d}} + \epsilon. $$
 
 Summing $W_i$ over $i=1,\dots,n$ yields the end-to-end latency for running $M$ as a segment chain.
+
+
+## Host-side handling overhead (based on input span)
+
+Empirically, there exists a host-side handling overhead that correlates strongly with the input I/O envelope span of each segment. Let
+
+- $U^{in}_i$: the union/envelope span for input I/O of $S_i$ (ms), measured from usbmon span statistics.
+- $T^{host}_M$: a model-specific fixed host handling baseline (ms). This is the per-model constant you referred to as `Th(host)`; we denote it $T^{host}_M$.
+- $\kappa$: a global coefficient (ms/ms) capturing the linear dependence on $U^{in}_i$.
+
+We model the per-segment host-side overhead as
+
+$$
+\Delta_i \;=\; T^{host}_M \; + \; \kappa\, U^{in}_i.
+$$
+
+Accordingly, the per-segment makespan with host handling becomes
+
+$$
+W'_i \;=\; W_i \; + \; \Delta_i \;=\; C^{in}_i + C^{out}_i + C^e_i + C^{w}_i + \epsilon \; + \; T^{host}_M \; + \; \kappa\, U^{in}_i.
+$$
+
+Summing over the chain, the added host contribution is $\sum_i \Delta_i = n\,T^{host}_M + \kappa\, \sum_i U^{in}_i$.
+
+Notes:
+
+- Calibration. From our current fit across five models and 8 segments (40 rows), a global linear fit suggests $\kappa \approx 0.299\;\mathrm{ms/ms}$ with an intercept around $0.553\;\mathrm{ms}$ when using a single global constant. For better accuracy, estimate $T^{host}_M$ per model using that model's data (keeping a shared $\kappa$), or estimate both per model if needed.
+- Naming. To match your notation, you can read $T^{host}_M$ as `Th(host)` for model $M$.

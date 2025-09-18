@@ -66,8 +66,8 @@ def run_real_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     env.setdefault('WARMUP', '0')
     env.setdefault('COUNT', '1')
     env.setdefault('STOP_ON_COUNT', '1')
-    # 默认持续 20s，可通过 CAP_DUR 覆盖
-    dur = os.environ.get('CAP_DUR', '20')
+    # 默认持续 60s，可通过 CAP_DUR 覆盖
+    dur = os.environ.get('CAP_DUR', '60')
     cmd = [CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
