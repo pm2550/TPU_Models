@@ -267,17 +267,17 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 2556512,
-          "segment_model_MiB": 2.438
+          "segment_model_bytes": 3474848,
+          "segment_model_MiB": 3.31308
         },
         "seg2to8": {
           "after warm up out_bytes": 14975416,
           "theory_IN_bytes": 1000,
-          "off_used_MiB": 14.07,
+          "off_used_MiB": 12.83,
           "base_input_bytes": 221952,
           "base_output_bytes": 1000,
-          "segment_model_bytes": 22463072,
-          "segment_model_MiB": 21.422
+          "segment_model_bytes": 20459760,
+          "segment_model_MiB": 19.515381
         }
       },
       "K3": {
@@ -287,8 +287,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 2556512,
-          "segment_model_MiB": 2.438
+          "segment_model_bytes": 3572776,
+          "segment_model_MiB": 3.407097
         },
         "seg2": {
           "after warm up out_bytes": 221952,
@@ -296,8 +296,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 3293792,
-          "segment_model_MiB": 3.141
+          "segment_model_bytes": 1742296,
+          "segment_model_MiB": 1.66127
         },
         "seg3to8": {
           "after warm up out_bytes": 11787745,
@@ -316,8 +316,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 2556512,
-          "segment_model_MiB": 2.438
+          "segment_model_bytes": 3572776,
+          "segment_model_MiB": 3.407097
         },
         "seg2": {
           "after warm up out_bytes": 221952,
@@ -325,8 +325,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 3293792,
-          "segment_model_MiB": 3.141
+          "segment_model_bytes": 1742296,
+          "segment_model_MiB": 1.66127
         },
         "seg3": {
           "after warm up out_bytes": 221952,
@@ -354,8 +354,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 2556512,
-          "segment_model_MiB": 2.438
+          "segment_model_bytes": 3572776,
+          "segment_model_MiB": 3.407097
         },
         "seg2": {
           "after warm up out_bytes": 221952,
@@ -363,8 +363,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 3293792,
-          "segment_model_MiB": 3.141
+          "segment_model_bytes": 1742296,
+          "segment_model_MiB": 1.66127
         },
         "seg3": {
           "after warm up out_bytes": 221952,
@@ -401,8 +401,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 2556512,
-          "segment_model_MiB": 2.438
+          "segment_model_bytes": 3572776,
+          "segment_model_MiB": 3.407097
         },
         "seg2": {
           "after warm up out_bytes": 221952,
@@ -410,8 +410,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 3293792,
-          "segment_model_MiB": 3.141
+          "segment_model_bytes": 1742296,
+          "segment_model_MiB": 1.66127
         },
         "seg3": {
           "after warm up out_bytes": 221952,
@@ -457,8 +457,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 2556512,
-          "segment_model_MiB": 2.438
+          "segment_model_bytes": 3572776,
+          "segment_model_MiB": 3.407097
         },
         "seg2": {
           "after warm up out_bytes": 221952,
@@ -466,8 +466,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 221952,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 3293792,
-          "segment_model_MiB": 3.141
+          "segment_model_bytes": 1742296,
+          "segment_model_MiB": 1.66127
         },
         "seg3": {
           "after warm up out_bytes": 221952,

@@ -14,6 +14,9 @@ SPAN_SUMMARY = BASE/'results/models_local_batch_usbmon/single/combined_summary_s
 
 # Config: effective link bandwidths (MiB/s)
 # Per user's latest instruction: B_in = 320 (h2d), B_out = 60 (d2h)
+# Mapping per user: H2D (Cin) faster, D2H (Cout) slower
+#   B_IN  = 330 MiB/s  (Cin, host → device)
+#   B_OUT = 60  MiB/s  (Cout, device → host)
 B_IN = 330.0
 B_OUT = 60.0
 EPS_MS = 0.0   # small overhead per segment (ignored by default)
