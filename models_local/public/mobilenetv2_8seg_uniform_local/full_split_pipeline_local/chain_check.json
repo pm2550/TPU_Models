@@ -1,0 +1,13 @@
+{
+  "top1_match": 1,
+  "num_samples": 1,
+  "avg_abs_diff": 0.0010000001639127731,
+  "original_shape": [
+    1,
+    1000
+  ],
+  "segmented_shape": [
+    1,
+    1000
+  ]
+}

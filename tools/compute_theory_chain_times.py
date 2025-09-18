@@ -9,10 +9,11 @@ THEORY_COMBOS = BASE/'five_models/baselines/theory_io_combos.json'
 THEORY_SEG = BASE/'five_models/baselines/theory_io_seg.json'
 PURE_CSV = BASE/'five_models/results/single_pure_invoke_times.csv'
 OUT_CSV = BASE/'five_models/results/theory_chain_times.csv'
+PURE_COMBINED = BASE/'results/models_local_batch_usbmon/single/combined_pure_gap_seg1-8_summary.csv'
 
 # Config: effective link bandwidths (MiB/s)
 # Per user's latest instruction: B_in = 320 (h2d), B_out = 60 (d2h)
-B_IN = 320.0
+B_IN = 330.0
 B_OUT = 60.0
 EPS_MS = 0.0   # small overhead per segment (ignored by default)
 
@@ -63,24 +64,127 @@ def read_segments():
     return S
 
 def read_pure_times():
-    # CSV columns expected: model, segment, type, count, pure_ms_final, pure_ms_pre, pure_ms_post, adjustment_applied, theory_out_mibps_used
+    """Read final pure times from CSV (pure_ms_final preferred). Returns {model:{segX: ms}}"""
     rows = []
     with PURE_CSV.open() as f:
         rd = csv.DictReader(f)
         for r in rd:
             rows.append(r)
-    # Map: {model: {segX: pure_ms_final}}
     P = {m: {} for m in MODELS}
     for r in rows:
         m = r.get('model'); seg = r.get('segment')
         if not m or not seg: continue
         if m not in P: P[m] = {}
         try:
-            v = float(r.get('pure_ms_final') or r.get('pure_ms_pre') or 0.0)
+            v = float(r.get('pure_ms_final') or r.get('pure_ms_post') or r.get('pure_ms_pre') or 0.0)
         except Exception:
             v = 0.0
         P[m][seg] = v
     return P
+
+def sync_pure_pre_from_combined():
+    """Write new pure (p50_ms) into CSV's pure_ms_pre for segments present in combined file.
+    Also updates 'count' and marks 'source'='new_pure_gap' for those rows.
+    """
+    if not PURE_COMBINED.exists() or not PURE_CSV.exists():
+        return
+    # Load combined p50
+    combined = {}
+    with PURE_COMBINED.open() as f:
+        rd = csv.DictReader(f)
+        for r in rd:
+            m = r.get('model'); seg = r.get('segment')
+            if not m or not seg: continue
+            try:
+                p50 = float(r.get('p50_ms') or 0.0)
+                cnt = int(r.get('count') or 0)
+            except Exception:
+                p50, cnt = 0.0, 0
+            combined.setdefault(m, {})[seg] = {'p50': p50, 'count': cnt}
+    # Read CSV, update pure_ms_pre/count/source only
+    rows = []
+    with PURE_CSV.open() as f:
+        rd = csv.DictReader(f)
+        fieldnames = rd.fieldnames or []
+        if 'source' not in fieldnames:
+            fieldnames.append('source')
+        for r in rd:
+            m = r.get('model'); seg = r.get('segment')
+            info = (combined.get(m) or {}).get(seg)
+            if info:
+                r['pure_ms_pre'] = f"{info['p50']}"
+                if info['count']:
+                    r['count'] = str(info['count'])
+                # tag the source of pre values
+                r['source'] = 'new_pure_gap'
+            rows.append(r)
+    # Write back
+    with PURE_CSV.open('w', newline='') as f:
+        wr = csv.DictWriter(f, fieldnames=fieldnames)
+        wr.writeheader(); wr.writerows(rows)
+
+
+def update_pure_csv_with_offchip(segments_def):
+    """Apply off-chip adjustment to CSV in-place.
+    post = max(pre, off_used_MiB/B_IN*1000) for off-chip segments; else post=pre.
+    Also sets pure_ms_final=post and adjustment_applied flag.
+    """
+    import csv
+    from shutil import copyfile
+
+    # Build lookup for off_used_MiB per model+segment
+    off_used = {m: {} for m in MODELS}
+    for m, segs in segments_def.items():
+        if m not in off_used:
+            continue
+        for i in range(1, 9):
+            seg = f'seg{i}'
+            gd = segs.get(seg, {}) if isinstance(segs, dict) else {}
+            try:
+                off_used[m][seg] = float(gd.get('off_used_MiB') or 0.0)
+            except Exception:
+                off_used[m][seg] = 0.0
+
+    # Read/update/write
+    rows = []
+    with PURE_CSV.open() as f:
+        rd = csv.DictReader(f)
+        fieldnames = rd.fieldnames or []
+        for need in ('pure_ms_pre','pure_ms_post','pure_ms_final','adjustment_applied','theory_out_mibps_used','source'):
+            if need not in fieldnames:
+                fieldnames.append(need)
+        for r in rd:
+            m = r.get('model'); seg = r.get('segment')
+            if m in MODELS and seg in {f'seg{i}' for i in range(1,9)}:
+                try:
+                    pre = float(r.get('pure_ms_pre') or 0.0)
+                except Exception:
+                    pre = 0.0
+                off_mib = (off_used.get(m, {}) or {}).get(seg, 0.0)
+                if off_mib and off_mib > 0.0:
+                    t_off_ms = (off_mib / B_IN) * 1000.0
+                    post = max(pre, t_off_ms)
+                    r['adjustment_applied'] = '1' if post > pre else '0'
+                    r['theory_out_mibps_used'] = str(B_IN)
+                    # mark adjusted-from-new if applicable
+                    if (r.get('source') or '').startswith('new_pure_gap'):
+                        r['source'] = 'new_pure_gap+adjusted'
+                else:
+                    post = pre
+                    r['adjustment_applied'] = '0'
+                    if not (r.get('theory_out_mibps_used')):
+                        r['theory_out_mibps_used'] = '320.0'
+                r['pure_ms_post'] = f"{post}"
+                r['pure_ms_final'] = f"{post}"
+            rows.append(r)
+
+    try:
+        copyfile(PURE_CSV, PURE_CSV.with_suffix('.csv.bak'))
+    except Exception:
+        pass
+    with PURE_CSV.open('w', newline='') as f:
+        wr = csv.DictWriter(f, fieldnames=fieldnames)
+        wr.writeheader(); wr.writerows(rows)
 
 
 def expand_group_to_segments(group_name: str):
@@ -104,8 +208,16 @@ def mib_to_bytes(mib: float) -> float:
 
 
 def compute_chain_times():
+    # Ensure CSV has the latest measured span-based pure values before computing
+    try:
+        import subprocess, sys
+        subprocess.run([sys.executable, str(BASE/'tools/update_pure_from_offchip_span.py')], check=True)
+    except Exception as e:
+        # Non-fatal: proceed with existing CSV if updater fails
+        print('Warn: failed to refresh CSV from offchip_summary_span.json:', e)
     combos = read_combos()
     segments = read_segments()
+    # 使用 CSV 中的最终纯推理时间，不再在此处改写或再调整
     P = read_pure_times()
     out_rows = []
     for model in MODELS:

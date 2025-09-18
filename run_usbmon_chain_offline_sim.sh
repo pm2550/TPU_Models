@@ -13,6 +13,7 @@ NAME_BASE="$2"
 OUTDIR="$3"
 BUS="$4"
 DUR="$5"
+GAP_S="${GAP_S:-0.1}"
 
 PW="/home/10210/Desktop/OS/password.text"
 USBMON_NODE="/sys/kernel/debug/usb/usbmon/${BUS}u"
@@ -109,6 +110,11 @@ def make_itp(model_path: str):
         return Interpreter(model_path, experimental_delegates=[load_delegate('libedgetpu.so.1')])
 
 tpu_dir, out_dir, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
+gap_s = 0.1
+try:
+    gap_s = float(os.environ.get('GAP_S', '0.1'))
+except Exception:
+    gap_s = 0.1
 paths = []
 for i in range(1, 9):
     cands = sorted(glob.glob(os.path.join(tpu_dir, f"seg{i}_*_edgetpu.tflite")))
@@ -146,6 +152,11 @@ for _ in range(count):
         t0 = now(); it.invoke(); t1 = now()
         _ = it.get_tensor(it.get_output_details()[0]['index'])  # 触发 TPU 回传
         seg_spans[si].append({'begin': t0, 'end': t1})
+        # 每次 invoke 之间加入间隔
+        try:
+            time.sleep(gap_s)
+        except Exception:
+            pass
 
 for si in range(1,9):
     with open(os.path.join(out_dir, f"seg{si}", "invokes.json"), 'w') as f:

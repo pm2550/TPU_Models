@@ -871,6 +871,12 @@ def main():
         
     # 计算活跃时间（支持通过环境变量 ACTIVE_EXPAND_MS 设置扩展毫秒，默认严格=0ms）
         invoke_windows = invokes_data.get('spans', [])
+        # 检测single口径：若span包含 set_begin/get_end 字段，则视为single-like，
+        # 在后续采用“last Co(Bo) -> next Bi(S/C)”的纯invoke定义
+        try:
+            single_like = any((('set_begin' in (w or {})) or ('get_end' in (w or {}))) for w in invoke_windows)
+        except Exception:
+            single_like = False
         # 读取对齐策略参数
         shift_policy = os.environ.get('SHIFT_POLICY', 'none').strip()
         try:
@@ -1226,6 +1232,40 @@ def main():
                     rec['union_ms'] = rec['union_bridged_ms']
                     rec['pure_ms'] = rec.get('pure_bridged_ms')
             except Exception:
+                pass
+
+            # single 口径：改为“pure = last Co(Bo) -> next Bi(S 或 C) 的间隙（毫秒）”。
+            # 仅在能找到两端点时覆盖 pure 与 pure_compute。
+            try:
+                # 查找窗口内最后一个 OUT 完成（Co/Bo on C line）
+                # 为避免窗口尾部略晚的 Co 漏选，允许在窗口尾部增加一个尾部容差：SEARCH_TAIL_MS（默认20ms）
+                try:
+                    tail_ms_for_pure = float(os.environ.get('SEARCH_TAIL_MS', '20'))
+                except Exception:
+                    tail_ms_for_pure = 20.0
+                last_co = last_within(cout_times, b, e + (tail_ms_for_pure/1000.0))
+                next_bi_c = first_after(cin_times, last_co) if last_co is not None else None
+                next_bi_s = first_after(sin_times, last_co) if last_co is not None else None
+                # 选择更早的下一个 Bi 事件
+                cand = []
+                if next_bi_c is not None:
+                    cand.append(next_bi_c)
+                if next_bi_s is not None:
+                    cand.append(next_bi_s)
+                next_bi = min(cand) if cand else None
+                gap_ms = ((next_bi - last_co) * 1000.0) if (last_co is not None and next_bi is not None and next_bi >= last_co) else None
+                # 诊断字段（绝对ms时间轴，便于核查）
+                rec['last_Co_within_ms'] = (last_co * 1000.0) if last_co is not None else None
+                rec['next_Bi_after_ms'] = (next_bi * 1000.0) if next_bi is not None else None
+                rec['pure_gap_lastCo_to_nextBi_ms'] = gap_ms
+                # 若为single-like且gap可用，则覆盖纯推理时间定义
+                if single_like and gap_ms is not None and gap_ms >= 0.0:
+                    # 覆盖主输出 pure_ms，并同步 pure_compute_ms 作为后续 off-chip 调整的基线
+                    rec['pure_ms'] = gap_ms
+                    pure_compute_ms = gap_ms
+                    rec['pure_compute_ms'] = gap_ms
+            except Exception:
+                # 保留原有口径
                 pass
 
             # Cross-segment diagnostics: IN carry-in/outside and delays

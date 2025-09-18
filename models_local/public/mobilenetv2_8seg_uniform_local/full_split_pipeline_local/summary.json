@@ -1,0 +1,34 @@
+{
+  "model_name": "MobileNetV2",
+  "segments": 4,
+  "size_range": [
+    0.05,
+    6.5
+  ],
+  "total_mb": 4.3303985595703125,
+  "cut_points": [
+    "block_12_add",
+    "block_15_add",
+    "global_average_pooling2d"
+  ],
+  "decisions": [
+    [
+      "block_12_add",
+      1.008392333984375
+    ],
+    [
+      "block_15_add",
+      1.133392333984375
+    ],
+    [
+      "global_average_pooling2d",
+      1.168548583984375
+    ],
+    [
+      "OUTPUT",
+      1.445892333984375
+    ]
+  ],
+  "compliant_segments": 4,
+  "total_segments": 4
+}

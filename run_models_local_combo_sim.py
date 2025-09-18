@@ -53,8 +53,10 @@ def run_sim_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     os.makedirs(out_dir, exist_ok=True)
     env = os.environ.copy()
     env.setdefault('WARMUP', '0')
-    # 无预热，脚本内部固定每段一次、循环100次
-    cmd = [SIM_CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, "15"]
+    # 无预热，脚本内部固定每段一次、循环100次；加每次 invoke 的间隔（秒）
+    env.setdefault('GAP_S', '0.1')
+    dur = env.get('CAP_DUR', '120')
+    cmd = [SIM_CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 def run_real_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):

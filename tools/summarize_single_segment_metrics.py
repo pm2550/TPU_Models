@@ -6,7 +6,8 @@ import csv
 SINGLE_ROOT = "/home/10210/Desktop/OS/results/models_local_batch_usbmon/single"
 MODELS_BASE = "/home/10210/Desktop/OS/models_local/public"
 THEORY_JSON = "/home/10210/Desktop/OS/baselines/theory_io_only.json"
-OUT_CSV = "/home/10210/Desktop/OS/results/single_segment_metrics.csv"
+# Write to five_models results for consistency with other outputs
+OUT_CSV = "/home/10210/Desktop/OS/five_models/results/single_segment_metrics.csv"
 
 def load_theory():
     try:
@@ -72,11 +73,32 @@ def main():
             except Exception:
                 P = {}
             io_overall = (((P.get('io_performance') or {}).get('strict_window') or {}).get('overall_avg') or {})
-            act = (P.get('io_active_union_avg') or {})
+            # Prefer span S->C metrics from active_analysis_strict.json
+            ana_p = os.path.join(sdir, 'active_analysis_strict.json')
+            avg_in_act_ms = None
+            avg_out_act_ms = None
+            try:
+                A = json.load(open(ana_p)) if os.path.isfile(ana_p) else {}
+                per = A.get('per_invoke') or []
+                # skip first (cold)
+                per = per[1:] if len(per) > 1 else per
+                if per:
+                    in_spans = [float(x.get('in_span_sc_ms') or 0.0) for x in per]
+                    out_spans = [float(x.get('out_span_sc_ms') or 0.0) for x in per]
+                    import statistics as _st
+                    avg_in_act_ms = _st.mean(in_spans) if in_spans else 0.0
+                    avg_out_act_ms = _st.mean(out_spans) if out_spans else 0.0
+            except Exception:
+                pass
+
+            # Fallback to previous active-union metrics if span not available
+            if avg_in_act_ms is None or avg_out_act_ms is None:
+                act = (P.get('io_active_union_avg') or {})
+                avg_in_act_ms = float(act.get('avg_in_active_ms', 0) or 0)
+                avg_out_act_ms = float(act.get('avg_out_active_ms', 0) or 0)
+
             avg_out_b = float(io_overall.get('avg_bytes_out_per_invoke', 0) or 0)
             avg_in_b = float(io_overall.get('avg_bytes_in_per_invoke', 0) or 0)
-            avg_in_act_ms = float(act.get('avg_in_active_ms', 0) or 0)
-            avg_out_act_ms = float(act.get('avg_out_active_ms', 0) or 0)
             # 速率（MiB/s，按各自活跃时长计）
             def mibps(bytes_avg, ms):
                 if ms and ms > 0:
