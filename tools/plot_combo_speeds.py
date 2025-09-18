@@ -14,6 +14,13 @@ THEORY_CSV = RES_DIR/'theory_chain_times.csv'
 OUT_DIR = RES_DIR/'plots'
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# Theory bandwidths used for LOWER-BOUND (LB) variants
+# Green line uses B_IN; Red line uses B_IN2 (variant). These are only for annotation.
+B_IN = 379.0   # MiB/s (original lower-bound)
+B_IN2 = 339.0  # MiB/s (variant lower-bound)
+# You can also annotate B_OUT if desired (used by the upper bound derivation)
+B_OUT = 65.0   # MiB/s
+
 MODELS = [
     'densenet201_8seg_uniform_local',
     'inceptionv3_8seg_uniform_local',
@@ -43,6 +50,7 @@ def load_theory_times():
     rows = list(csv.DictReader(open(THEORY_CSV)))
     # Only TOTAL rows; keep ms domain
     lb = defaultdict(lambda: math.nan)  # lower-bound time (ms)
+    lb2 = defaultdict(lambda: math.nan) # variant lower-bound using B_IN2 (ms)
     ub = defaultdict(lambda: math.nan)  # upper-bound time (ms)
     for r in rows:
         if r.get('group_index') != 'TOTAL':
@@ -52,15 +60,19 @@ def load_theory_times():
             K = int(r['K'])
             # Use hosted bounds so plots reflect host-side overhead
             Wi_lb = float(r['Wi_lb_ms_hosted'])
+            Wi_lb2 = float(r.get('Wi_lb_ms_hosted_in2') or 'nan')
             Wi_ub = float(r['Wi_ub_ms_hosted'])
         except Exception:
             continue
         lb[(model, K)] = Wi_lb
+        lb2[(model, K)] = Wi_lb2
         ub[(model, K)] = Wi_ub
-    return lb, ub
+    return lb, lb2, ub
 
 
-def plot_model(model, measured, lb, ub):
+def plot_model(model, measured, lb, lb2, ub):
+    # derive a short display name, e.g., 'resnet101' from 'resnet101_8seg_uniform_local'
+    short = model.split('_')[0]
     Ks = list(range(2,9))
     fig, ax = plt.subplots(figsize=(8,4.5), dpi=130)
     # Scatter measured: jitter x slightly to reduce overplot
@@ -73,18 +85,23 @@ def plot_model(model, measured, lb, ub):
         ax.scatter(x, arr, s=10, c=colors, alpha=0.6, edgecolors='none', label='_nolegend_')
     # Lines for theory bounds
     y_lb = [lb.get((model,K), math.nan) for K in Ks]
+    y_lb2 = [lb2.get((model,K), math.nan) for K in Ks]
     y_ub = [ub.get((model,K), math.nan) for K in Ks]
-    ax.plot(Ks, y_lb, '-o', color='red', label='theory LB', linewidth=1.5, markersize=3)
-    ax.plot(Ks, y_ub, '-o', color='orange', label='theory UB', linewidth=1.5, markersize=3)
+    ax.plot(Ks, y_lb, '-o', color='green', label=f'theory LB (B_in={B_IN:.0f} MiB/s)', linewidth=1.8, markersize=3)
+    ax.plot(Ks, y_lb2, '-o', color='red', label=f'theory LB2 (B_in2={B_IN2:.0f} MiB/s)', linewidth=1.8, markersize=3)
+    ax.plot(Ks, y_ub, '-o', color='yellow', label='theory UB', linewidth=1.8, markersize=3)
 
-    ax.set_title(f"{model} — time per cycle vs K (ms)")
+    ax.set_title(f"{short} — time per cycle vs K (ms)")
     ax.set_xlabel('K (segments)')
     ax.set_ylabel('Time per cycle (ms)')
     ax.set_xticks(Ks)
     ax.grid(True, linestyle='--', alpha=0.3)
-    ax.legend(loc='best', fontsize=8)
+    # Removed top-left annotation card per request
+
+    # Place legend away from the top-left annotation card to avoid overlap
+    ax.legend(loc='lower right', fontsize=8, framealpha=0.85)
     fig.tight_layout()
-    out = OUT_DIR/f"{model}_time_vs_K.png"
+    out = OUT_DIR/f"{short}_time_vs_K.png"
     fig.savefig(out)
     plt.close(fig)
     return out
@@ -92,10 +109,10 @@ def plot_model(model, measured, lb, ub):
 
 def main():
     measured = load_measured_times()
-    lb, ub = load_theory_times()
+    lb, lb2, ub = load_theory_times()
     outs = []
     for m in MODELS:
-        outs.append(plot_model(m, measured, lb, ub))
+        outs.append(plot_model(m, measured, lb, lb2, ub))
     print("Saved:")
     for p in outs:
         print(p)

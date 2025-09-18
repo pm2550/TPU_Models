@@ -267,8 +267,8 @@
           "off_used_MiB": 0.0,
           "base_input_bytes": 268203,
           "base_output_bytes": 221952,
-          "segment_model_bytes": 3474848,
-          "segment_model_MiB": 3.31308
+          "segment_model_bytes": 3891200,
+          "segment_model_MiB": 3.708007
         },
         "seg2to8": {
           "after warm up out_bytes": 14975416,
@@ -277,28 +277,30 @@
           "base_input_bytes": 221952,
           "base_output_bytes": 1000,
           "segment_model_bytes": 20459760,
-          "segment_model_MiB": 19.515381
+          "segment_model_MiB": 20.145508
         }
       },
       "K3": {
         "seg1": {
-          "after warm up out_bytes": 268203,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 268203,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 3572776,
-          "segment_model_MiB": 3.407097
-        },
-        "seg2": {
-          "after warm up out_bytes": 221952,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 221952,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 1742296,
-          "segment_model_MiB": 1.66127
-        },
+        "theory_OUT_bytes": 268203,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 268203,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3924576,
+        "segment_model_MiB": 3.742767
+      },
+      "seg2": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1970784,
+        "segment_model_MiB": 1.879486
+      },
         "seg3to8": {
           "after warm up out_bytes": 11787745,
           "theory_IN_bytes": 1000,
@@ -311,23 +313,25 @@
       },
       "K4": {
         "seg1": {
-          "after warm up out_bytes": 268203,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 268203,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 3572776,
-          "segment_model_MiB": 3.407097
-        },
-        "seg2": {
-          "after warm up out_bytes": 221952,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 221952,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 1742296,
-          "segment_model_MiB": 1.66127
-        },
+        "theory_OUT_bytes": 268203,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 268203,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3924576,
+        "segment_model_MiB": 3.742767
+      },
+      "seg2": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1970784,
+        "segment_model_MiB": 1.879486
+      },
         "seg3": {
           "after warm up out_bytes": 221952,
           "theory_IN_bytes": 221952,
@@ -349,23 +353,25 @@
       },
       "K5": {
         "seg1": {
-          "after warm up out_bytes": 268203,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 268203,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 3572776,
-          "segment_model_MiB": 3.407097
-        },
-        "seg2": {
-          "after warm up out_bytes": 221952,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 221952,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 1742296,
-          "segment_model_MiB": 1.66127
-        },
+        "theory_OUT_bytes": 268203,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 268203,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3924576,
+        "segment_model_MiB": 3.742767
+      },
+      "seg2": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1970784,
+        "segment_model_MiB": 1.879486
+      },
         "seg3": {
           "after warm up out_bytes": 221952,
           "theory_IN_bytes": 221952,
@@ -396,23 +402,25 @@
       },
       "K6": {
         "seg1": {
-          "after warm up out_bytes": 268203,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 268203,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 3572776,
-          "segment_model_MiB": 3.407097
-        },
-        "seg2": {
-          "after warm up out_bytes": 221952,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 221952,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 1742296,
-          "segment_model_MiB": 1.66127
-        },
+        "theory_OUT_bytes": 268203,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 268203,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3924576,
+        "segment_model_MiB": 3.742767
+      },
+      "seg2": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1970784,
+        "segment_model_MiB": 1.879486
+      },
         "seg3": {
           "after warm up out_bytes": 221952,
           "theory_IN_bytes": 221952,
@@ -452,23 +460,25 @@
       },
       "K7": {
         "seg1": {
-          "after warm up out_bytes": 268203,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 268203,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 3572776,
-          "segment_model_MiB": 3.407097
-        },
-        "seg2": {
-          "after warm up out_bytes": 221952,
-          "theory_IN_bytes": 221952,
-          "off_used_MiB": 0.0,
-          "base_input_bytes": 221952,
-          "base_output_bytes": 221952,
-          "segment_model_bytes": 1742296,
-          "segment_model_MiB": 1.66127
-        },
+        "theory_OUT_bytes": 268203,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 268203,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 3924576,
+        "segment_model_MiB": 3.742767
+      },
+      "seg2": {
+        "theory_OUT_bytes": 221952,
+        "theory_IN_bytes": 221952,
+        "base_input_bytes": 221952,
+        "base_output_bytes": 221952,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
+        "segment_model_bytes": 1970784,
+        "segment_model_MiB": 1.879486
+      },
         "seg3": {
           "after warm up out_bytes": 221952,
           "theory_IN_bytes": 221952,

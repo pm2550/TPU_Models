@@ -1,0 +1,5 @@
+{"model":"densenet201","tflite":20651704,"edgetpu":24318560}
+{"model":"inceptionv3","tflite":24345752,"edgetpu":25129568}
+{"model":"resnet50","tflite":26287080,"edgetpu":26120800}
+{"model":"resnet101","tflite":45985824,"edgetpu":45539936}
+{"model":"xception","tflite":24178496,"edgetpu":25371232}

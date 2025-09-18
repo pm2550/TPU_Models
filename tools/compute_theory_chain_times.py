@@ -17,8 +17,10 @@ SPAN_SUMMARY = BASE/'results/models_local_batch_usbmon/single/combined_summary_s
 # Mapping per user: H2D (Cin) faster, D2H (Cout) slower
 #   B_IN  = 330 MiB/s  (Cin, host → device)
 #   B_OUT = 60  MiB/s  (Cout, device → host)
-B_IN = 330.0
-B_OUT = 60.0
+B_IN = 379.0
+B_OUT = 65.0
+# Variant lower-bound H2D bandwidth (MiB/s) for sensitivity line
+B_IN2 = 339.0
 EPS_MS = 0.0   # small overhead per segment (ignored by default)
 
 # Host-side handling model (function of in_span per segment):
@@ -312,6 +314,7 @@ def compute_chain_times():
                 groups_def = kmap.get(Kkey, {})  # dict of groupName -> fields
 
             total_lb_ms = 0.0
+            total_lb_ms_in2 = 0.0  # variant lower-bound total using B_IN2
             total_ub_ms = 0.0
             notes = []
             total_host_delta_ms = 0.0
@@ -332,15 +335,20 @@ def compute_chain_times():
 
                 # Data transfer times (ms)
                 Cin_ms = (d_in / (B_IN * 1024 * 1024.0)) * 1000.0 if d_in else 0.0
+                # Variant using B_IN2 for H2D only
+                Cin_ms_in2 = (d_in / (B_IN2 * 1024 * 1024.0)) * 1000.0 if d_in else 0.0
                 Cout_ms = (d_out / (B_OUT * 1024 * 1024.0)) * 1000.0 if d_out else 0.0
 
                 # Weight warm time for resident part (ms)
                 t_warm_ms = (w_warm_mib / B_IN) * 1000.0 if w_warm_mib else 0.0
+                t_warm_ms_in2 = (w_warm_mib / B_IN2) * 1000.0 if w_warm_mib else 0.0
 
                 # Per-group t_rem: only subtract this group's compute (non-aggregated)
                 t_rem_ms_raw = (w_rem_mib / B_IN) * 1000.0 if w_rem_mib else 0.0
+                t_rem_ms_raw_in2 = (w_rem_mib / B_IN2) * 1000.0 if w_rem_mib else 0.0
                 t_rem_lb_ms = max(t_rem_ms_raw - Ce_ms, 0.0)
                 t_rem_ub_ms = t_rem_ms_raw
+                t_rem_lb_ms_in2 = max(t_rem_ms_raw_in2 - Ce_ms, 0.0)
 
                 # Host-side overhead for this group: choose U_in policy
                 seg_count = len(segs)
@@ -359,10 +367,13 @@ def compute_chain_times():
 
                 # Group makespan bounds
                 Wi_lb_ms = Cin_ms + Cout_ms + Ce_ms + t_warm_ms + t_rem_lb_ms + EPS_MS
+                Wi_lb_ms_in2 = Cin_ms_in2 + Cout_ms + Ce_ms + t_warm_ms_in2 + t_rem_lb_ms_in2 + EPS_MS
                 Wi_ub_ms = Cin_ms + Cout_ms + Ce_ms + t_warm_ms + t_rem_ub_ms + EPS_MS
                 Wi_lb_host_ms = Wi_lb_ms + delta_host_ms
+                Wi_lb_host_ms_in2 = Wi_lb_ms_in2 + delta_host_ms
                 Wi_ub_host_ms = Wi_ub_ms + delta_host_ms
                 total_lb_ms += Wi_lb_ms
+                total_lb_ms_in2 += Wi_lb_ms_in2
                 total_ub_ms += Wi_ub_ms
                 total_host_delta_ms += delta_host_ms
                 # For CSV simplicity: expose only full host delta as Th_ms (per-group total)
@@ -375,18 +386,21 @@ def compute_chain_times():
                     'group_name': gname,
                     'group_segs': ','.join(segs),
                     'Cin_ms': round(Cin_ms, 3),
+                    'Cin_ms_in2': round(Cin_ms_in2, 3),
                     'Cout_ms': round(Cout_ms, 3),
                     'Ce_ms': round(Ce_ms, 3),
                     't_warm_ms': round(t_warm_ms, 3),
+                    't_warm_ms_in2': round(t_warm_ms_in2, 3),
                     't_rem_lb_ms': round(t_rem_lb_ms, 3),
+                    't_rem_lb_ms_in2': round(t_rem_lb_ms_in2, 3),
                     't_rem_ub_ms': round(t_rem_ub_ms, 3),
                     'Wi_lb_ms': round(Wi_lb_ms, 3),
+                    'Wi_lb_ms_in2': round(Wi_lb_ms_in2, 3),
                     'Wi_ub_ms': round(Wi_ub_ms, 3),
                     'Th_ms': round(delta_host_ms, 3),
                     'Wi_lb_ms_hosted': round(Wi_lb_host_ms, 3),
+                    'Wi_lb_ms_hosted_in2': round(Wi_lb_host_ms_in2, 3),
                     'Wi_ub_ms_hosted': round(Wi_ub_host_ms, 3),
-                    'w_warm_MiB': round(w_warm_mib, 3),
-                    'w_rem_MiB': round(w_rem_mib, 3),
                     'notes': ';'.join(notes),
                 })
 
@@ -398,18 +412,21 @@ def compute_chain_times():
                 'group_name': '-',
                 'group_segs': '-',
                 'Cin_ms': '',
+                'Cin_ms_in2': '',
                 'Cout_ms': '',
                 'Ce_ms': '',
                 't_warm_ms': '',
+                't_warm_ms_in2': '',
                 't_rem_lb_ms': '',
+                't_rem_lb_ms_in2': '',
                 't_rem_ub_ms': '',
                 'Wi_lb_ms': round(total_lb_ms, 3),
+                'Wi_lb_ms_in2': round(total_lb_ms_in2, 3),
                 'Wi_ub_ms': round(total_ub_ms, 3),
                 'Th_ms': round(total_host_delta_ms, 3),
                 'Wi_lb_ms_hosted': round(total_lb_ms + total_host_delta_ms, 3),
+                'Wi_lb_ms_hosted_in2': round(total_lb_ms_in2 + total_host_delta_ms, 3),
                 'Wi_ub_ms_hosted': round(total_ub_ms + total_host_delta_ms, 3),
-                'w_warm_MiB': '',
-                'w_rem_MiB': '',
                 'notes': ';'.join(notes),
             })
     # Write CSV
@@ -419,10 +436,10 @@ def compute_chain_times():
             f,
             fieldnames=[
                 'model','K','group_index','group_name','group_segs',
-                'Cin_ms','Cout_ms','Ce_ms','t_warm_ms','t_rem_lb_ms','t_rem_ub_ms',
-                'Wi_lb_ms','Wi_ub_ms',
-                'Th_ms','Wi_lb_ms_hosted','Wi_ub_ms_hosted',
-                'w_warm_MiB','w_rem_MiB','notes'
+                'Cin_ms','Cin_ms_in2','Cout_ms','Ce_ms','t_warm_ms','t_warm_ms_in2','t_rem_lb_ms','t_rem_lb_ms_in2','t_rem_ub_ms',
+                'Wi_lb_ms','Wi_lb_ms_in2','Wi_ub_ms',
+                'Th_ms','Wi_lb_ms_hosted','Wi_lb_ms_hosted_in2','Wi_ub_ms_hosted',
+                'notes'
             ]
         )
         w.writeheader()

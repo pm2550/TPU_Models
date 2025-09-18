@@ -23,7 +23,7 @@ COMBINED_SPAN = BASE / 'results/models_local_batch_usbmon/single/combined_summar
 OUT_CSV = BASE / 'five_models/results/single_pure_invoke_times.csv'
 THEORY_SEG = BASE / 'five_models/baselines/theory_io_seg.json'
 
-Bin_speed = 330.0  # MiB/s for off-chip adjustment if recomputing delta
+Bin_speed = 325.0  # MiB/s for off-chip adjustment if recomputing delta
 
 def load_combined_span():
     """Load combined span stats: returns {model:{seg:{pre:float, post:float, count:int, theory:float}}}."""
