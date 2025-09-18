@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import csv
 import json
+import os
 from pathlib import Path
 
 BASE = Path('/home/10210/Desktop/OS')
@@ -277,9 +278,21 @@ def mib_to_bytes(mib: float) -> float:
 
 
 def compute_chain_times():
-    # Do not mutate or refresh the pure CSV here; only read existing values.
+    # Optionally refresh pure_ms_pre from gap-based combined medians and apply off-chip adjustment.
+    # Guarded by env vars to avoid overwriting user's manual edits by default.
+    if os.environ.get('SYNC_PURE_GAP') == '1':
+        try:
+            sync_pure_pre_from_combined()
+        except Exception:
+            pass
     combos = read_combos()
     segments = read_segments()
+    # After (optional) refresh, optionally compute pure_ms_post/final via off-chip adjustment
+    if os.environ.get('APPLY_OFFCHIP') == '1':
+        try:
+            update_pure_csv_with_offchip(segments)
+        except Exception:
+            pass
     in_span = read_in_span_ms()
     # Prepare Th(host) per model if enabled
     T_host = read_T_host_per_model(KAPPA_MS_PER_MS) if USE_PER_MODEL_THOST else {m: HOST_C_MS for m in MODELS}
@@ -316,6 +329,10 @@ def compute_chain_times():
             total_lb_ms = 0.0
             total_lb_ms_in2 = 0.0  # variant lower-bound total using B_IN2
             total_ub_ms = 0.0
+            # new: accumulate per-group remainder totals for TOTAL row visibility
+            total_trem_lb_ms = 0.0
+            total_trem_lb_ms_in2 = 0.0
+            total_trem_ub_ms = 0.0
             notes = []
             total_host_delta_ms = 0.0
             for gi, (gname, gd) in enumerate(groups_def.items(), start=1):
@@ -349,6 +366,10 @@ def compute_chain_times():
                 t_rem_lb_ms = max(t_rem_ms_raw - Ce_ms, 0.0)
                 t_rem_ub_ms = t_rem_ms_raw
                 t_rem_lb_ms_in2 = max(t_rem_ms_raw_in2 - Ce_ms, 0.0)
+                # accumulate totals
+                total_trem_lb_ms += t_rem_lb_ms
+                total_trem_lb_ms_in2 += t_rem_lb_ms_in2
+                total_trem_ub_ms += t_rem_ub_ms
 
                 # Host-side overhead for this group: choose U_in policy
                 seg_count = len(segs)
@@ -417,9 +438,9 @@ def compute_chain_times():
                 'Ce_ms': '',
                 't_warm_ms': '',
                 't_warm_ms_in2': '',
-                't_rem_lb_ms': '',
-                't_rem_lb_ms_in2': '',
-                't_rem_ub_ms': '',
+                't_rem_lb_ms': round(total_trem_lb_ms, 3),
+                't_rem_lb_ms_in2': round(total_trem_lb_ms_in2, 3),
+                't_rem_ub_ms': round(total_trem_ub_ms, 3),
                 'Wi_lb_ms': round(total_lb_ms, 3),
                 'Wi_lb_ms_in2': round(total_lb_ms_in2, 3),
                 'Wi_ub_ms': round(total_ub_ms, 3),
