@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+7#!/usr/bin/env python3
 import csv
 import json
 import os
@@ -18,10 +18,37 @@ SPAN_SUMMARY = BASE/'results/models_local_batch_usbmon/single/combined_summary_s
 # Mapping per user: H2D (Cin) faster, D2H (Cout) slower
 #   B_IN  = 330 MiB/s  (Cin, host → device)
 #   B_OUT = 60  MiB/s  (Cout, device → host)
-B_IN = 379.0
-B_OUT = 65.0
 # Variant lower-bound H2D bandwidth (MiB/s) for sensitivity line
-B_IN2 = 339.0
+#   B_IN  = 330 MiB/s  (Cin, host → device)
+#   B_OUT = 60  MiB/s  (Cout, device → host)
+# Support env overrides so batch scripts can sweep bounds without editing this file.
+def _fenv(name: str, default: float) -> float:
+    try:
+        v = os.environ.get(name)
+        return float(v) if v is not None and v != '' else float(default)
+    except Exception:
+        return float(default)
+
+# Bandwidth source toggle:
+# If True, ignore environment variables and always use the hardcoded defaults below.
+# If False (default), read from environment with the defaults as fallbacks.
+USE_CODE_DEFAULTS = True
+# Hardcoded defaults (MiB/s)
+DEFAULT_B_IN = 344.0
+DEFAULT_B_OUT = 65.0
+DEFAULT_B_IN2 = 287.0  # used as the "UB"/variant line when applicable
+
+
+if USE_CODE_DEFAULTS:
+    B_IN = float(DEFAULT_B_IN)
+    B_OUT = float(DEFAULT_B_OUT)
+    B_IN2 = float(DEFAULT_B_IN2)
+else:
+    B_IN = _fenv('B_IN', DEFAULT_B_IN)
+    B_OUT = _fenv('B_OUT', DEFAULT_B_OUT)
+    # Variant lower-bound H2D bandwidth (MiB/s) for sensitivity line (used as second bound / UB)
+    B_IN2 = _fenv('B_IN2', _fenv('UB', DEFAULT_B_IN2))
+
 EPS_MS = 0.0   # small overhead per segment (ignored by default)
 
 # Host-side handling model (function of in_span per segment):
@@ -32,6 +59,13 @@ EPS_MS = 0.0   # small overhead per segment (ignored by default)
 KAPPA_MS_PER_MS = 0.2992134815732149
 HOST_C_MS = 0.5527747236073199
 USE_PER_MODEL_THOST = False
+
+# Host delta span source policy:
+# - 'measured_in': use usbmon measured H2D envelope span
+# - 'theory_cin':  use computed Cin_ms for the group
+# - 'theory_cout': use computed Cout_ms for the group
+# Can be overridden by env HOST_DELTA_SPAN_SOURCE, but you can set the default here.
+HOST_DELTA_SPAN_SOURCE = os.environ.get('HOST_DELTA_SPAN_SOURCE', 'theory_cout')
 
 MODELS = [
     'densenet201_8seg_uniform_local',
@@ -371,16 +405,24 @@ def compute_chain_times():
                 total_trem_lb_ms_in2 += t_rem_lb_ms_in2
                 total_trem_ub_ms += t_rem_ub_ms
 
-                # Host-side overhead for this group: choose U_in policy
+                # Host-side overhead for this group: choose span policy for U value driving host delta
                 seg_count = len(segs)
-                # Policy: for groups like 'segXto8', use only the last segment's in_span (e.g., seg8);
-                # otherwise, sum in_span across the group's segments.
-                use_last_only = ('to8' in gname)
-                if use_last_only:
-                    last_seg = segs[-1] if segs else None
-                    Uin_used_ms = (in_span.get(model, {}) or {}).get(last_seg, 0.0) if last_seg else 0.0
+                if HOST_DELTA_SPAN_SOURCE == 'theory_cin':
+                    # Use computed Cin_ms for this group
+                    Uin_used_ms = Cin_ms
+                elif HOST_DELTA_SPAN_SOURCE == 'theory_cout':
+                    # Use computed Cout_ms for this group (some analyses prefer correlating host delta with D2H)
+                    Uin_used_ms = Cout_ms
                 else:
-                    Uin_used_ms = sum((in_span.get(model, {}) or {}).get(seg, 0.0) for seg in segs)
+                    # Default: measured H2D envelope span from usbmon.
+                    # For groups like 'segXto8', use only the last segment's in_span (e.g., seg8);
+                    # otherwise, sum in_span across the group's segments.
+                    use_last_only = ('to8' in gname)
+                    if use_last_only:
+                        last_seg = segs[-1] if segs else None
+                        Uin_used_ms = (in_span.get(model, {}) or {}).get(last_seg, 0.0) if last_seg else 0.0
+                    else:
+                        Uin_used_ms = sum((in_span.get(model, {}) or {}).get(seg, 0.0) for seg in segs)
                 Th_ms = T_host.get(model, HOST_C_MS)
                 # Group host delta: one invoke per group (not per segment)
                 group_invokes = 1
