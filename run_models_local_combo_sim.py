@@ -54,6 +54,7 @@ def run_sim_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     env = os.environ.copy()
     env.setdefault('WARMUP', '0')
     # 无预热，脚本内部固定每段一次、循环100次；加每次 invoke 的间隔（秒）
+    # 注意：单位为秒。默认使用 0.1s（100ms），避免误填 100 造成长时间阻塞。
     env.setdefault('GAP_S', '0.1')
     dur = env.get('CAP_DUR', '120')
     cmd = [SIM_CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
@@ -280,6 +281,61 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
     m = _re.match(r"seg(\d+)", seg_label)
     seg_num = int(m.group(1)) if m else None
 
+    # 运行严格窗口分析器，获取 per-invoke 的 in/out span 与纯间隙（last Co->next Bi）
+    active_spans_summary = None
+    try:
+        if os.path.exists(ANALYZE_ACTIVE):
+            env = os.environ.copy()
+            # 与离线脚本保持一致的默认参数
+            env.setdefault('STRICT_INVOKE_WINDOW', '1')
+            env.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+            env.setdefault('CLUSTER_GAP_MS', '0.1')
+            env.setdefault('SEARCH_TAIL_MS', '20')
+            env.setdefault('SEARCH_HEAD_MS', '10')
+            env.setdefault('MAX_SHIFT_MS', '30')
+            res = subprocess.run([SYS_PY, ANALYZE_ACTIVE, usbmon_file, invokes_file, time_map_file],
+                                 capture_output=True, text=True, env=env, check=False)
+            if res.returncode == 0 and res.stdout:
+                try:
+                    J = json.loads(res.stdout)
+                except Exception:
+                    # 有些版本直接打印 JSON
+                    # 也可能包含前缀行，尝试从最后一个 { 开始解析
+                    s = res.stdout
+                    idx = s.rfind('{')
+                    if idx >= 0:
+                        J = json.loads(s[idx:])
+                    else:
+                        J = None
+                if J and isinstance(J, dict):
+                    per = J.get('per_invoke') or []
+                    if per:
+                        def safe_vals(key):
+                            vals = []
+                            for r in per:
+                                v = r.get(key)
+                                if isinstance(v, (int, float)):
+                                    vals.append(float(v))
+                            return vals
+                        in_spans = safe_vals('in_span_sc_ms')
+                        out_spans = safe_vals('out_span_sc_ms')
+                        pure_gaps = safe_vals('pure_gap_lastCo_to_nextBi_ms')
+                        import statistics as _st
+                        active_spans_summary = {
+                            'mean_in_span_sc_ms': (_st.mean(in_spans) if in_spans else 0.0),
+                            'mean_out_span_sc_ms': (_st.mean(out_spans) if out_spans else 0.0),
+                            'mean_pure_gap_lastCo_to_nextBi_ms': (_st.mean(pure_gaps) if pure_gaps else 0.0),
+                            'count': len(per),
+                        }
+                        # 保存原始分析输出，便于回溯
+                        try:
+                            with open(active_file, 'w') as af:
+                                json.dump(J, af, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+    except Exception:
+        active_spans_summary = None
+
     summary = {
         'model_name': model_name,
         'segment_label': seg_label,
@@ -294,6 +350,7 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
             }
         },
         'io_active_union_avg': active_union_avg,
+        'active_spans_summary': active_spans_summary,
     }
     with open(summary_file, 'w') as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
@@ -395,6 +452,9 @@ def main():
                     print(f"--- {model_name} K{k} {seg_lbl} ---")
                     print(f"Invoke均值: {inv.get('mean_ms',0):.2f}ms, 纯Invoke均值: {pure.get('mean_ms',0):.2f}ms")
                     print(f"IN/OUT字节: {avg.get('avg_bytes_in_per_invoke',0)/1024/1024:.3f}MiB/{avg.get('avg_bytes_out_per_invoke',0)/1024/1024:.3f}MiB")
+                    act = s.get('active_spans_summary') or {}
+                    if act:
+                        print(f"in_span均值: {act.get('mean_in_span_sc_ms',0):.2f}ms, out_span均值: {act.get('mean_out_span_sc_ms',0):.2f}ms, 纯间隙(lastCo->nextBi)均值: {act.get('mean_pure_gap_lastCo_to_nextBi_ms',0):.2f}ms")
                 else:
                     print(f"(分析失败) {model_name} K{k} {seg_lbl}")
 

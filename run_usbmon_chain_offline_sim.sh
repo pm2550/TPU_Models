@@ -14,14 +14,16 @@ OUTDIR="$3"
 BUS="$4"
 DUR="$5"
 GAP_S="${GAP_S:-0.1}"
+# 可选：自定义段序列（例如 "1,2,3,4,full"）；默认使用 1..8
+SEG_LIST_ENV="${SEG_LIST:-}"
 
 PW="/home/10210/Desktop/OS/password.text"
 USBMON_NODE="/sys/kernel/debug/usb/usbmon/${BUS}u"
 CAP="$OUTDIR/usbmon.txt"
 TM="$OUTDIR/time_map.json"
 
-# 每段一次，循环100次（无预热）
-COUNT=100
+# 每段一次，循环 COUNT 次（无预热），允许通过环境变量覆盖
+COUNT="${COUNT:-100}"
 
 PY_SYS="$(command -v python3)"
 PY_MAP="${PY_SYS:-/usr/bin/python3}"
@@ -42,11 +44,14 @@ if [[ ! -f "$PW" ]]; then
   exit 1
 fi
 
-# 启动 usbmon 采集
+# 启动 usbmon 采集（先清理同 BUS 的历史采集进程，避免残留占用导致卡住）
+cat "$PW" | sudo -S -p '' pkill -f "/sys/kernel/debug/usb/usbmon/${BUS}u" 2>/dev/null || true
 cat "$PW" | sudo -S -p '' modprobe usbmon || true
 cat "$PW" | sudo -S -p '' sh -c ": > '$CAP'" || true
 cat "$PW" | sudo -S -p '' sh -c "cat '$USBMON_NODE' > '$CAP'" &
 CATPID=$!
+# 确保异常退出时也能回收采集进程
+trap 'kill "$CATPID" 2>/dev/null || true' INT TERM EXIT
 sleep 0.1
 
 # 启动映射记录器
@@ -98,7 +103,7 @@ print('time_map_ready=', ready)
 PY
 
 # 运行链式（模拟输入，不串接输出）
-"$RUN_PY" - "$TPU_DIR" "$OUTDIR" "$COUNT" <<'PY'
+"$RUN_PY" - "$TPU_DIR" "$OUTDIR" "$COUNT" "$SEG_LIST_ENV" <<'PY'
 import sys, os, time, json, glob, numpy as np
 
 def make_itp(model_path: str):
@@ -110,23 +115,52 @@ def make_itp(model_path: str):
         return Interpreter(model_path, experimental_delegates=[load_delegate('libedgetpu.so.1')])
 
 tpu_dir, out_dir, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
+seg_list_env = sys.argv[4] if len(sys.argv) > 4 else ''
 gap_s = 0.1
 try:
     gap_s = float(os.environ.get('GAP_S', '0.1'))
 except Exception:
     gap_s = 0.1
-paths = []
-for i in range(1, 9):
-    cands = sorted(glob.glob(os.path.join(tpu_dir, f"seg{i}_*_edgetpu.tflite")))
-    if not cands:
-        cands = sorted(glob.glob(os.path.join(tpu_dir, f"seg{i}_int8_edgetpu.tflite")))
-    if not cands:
-        print(f"MISSING seg{i} in {tpu_dir}")
-        sys.exit(1)
-    paths.append(cands[0])
+labels = []
+if seg_list_env:
+    # 支持形如 "1,2,3,4,full" 或 "seg1,seg2,seg3,seg4,full"
+    for tok in [x.strip() for x in seg_list_env.split(',') if x.strip()]:
+        if tok.lower() == 'full':
+            labels.append('full')
+        else:
+            m = None
+            import re as _re
+            m = _re.match(r'^(?:seg)?(\d+)$', tok)
+            if m:
+                labels.append(f"seg{int(m.group(1))}")
+            else:
+                raise SystemExit(f"Invalid SEG_LIST token: {tok}")
+else:
+    labels = [f"seg{i}" for i in range(1,9)]
 
-for i in range(1, 9):
-    os.makedirs(os.path.join(out_dir, f"seg{i}"), exist_ok=True)
+paths = []
+for lbl in labels:
+    if lbl == 'full':
+        cands = sorted(glob.glob(os.path.join(tpu_dir, f"full_*_edgetpu.tflite")))
+        if not cands:
+            cands = sorted(glob.glob(os.path.join(tpu_dir, f"full_int8_edgetpu.tflite")))
+        if not cands:
+            print(f"MISSING full model in {tpu_dir}")
+            sys.exit(1)
+        paths.append(cands[0])
+    else:
+        # segX
+        i = int(lbl[3:])
+        cands = sorted(glob.glob(os.path.join(tpu_dir, f"seg{i}_*_edgetpu.tflite")))
+        if not cands:
+            cands = sorted(glob.glob(os.path.join(tpu_dir, f"seg{i}_int8_edgetpu.tflite")))
+        if not cands:
+            print(f"MISSING {lbl} in {tpu_dir}")
+            sys.exit(1)
+        paths.append(cands[0])
+
+for lbl in labels:
+    os.makedirs(os.path.join(out_dir, lbl), exist_ok=True)
 
 itps = [make_itp(p) for p in paths]
 for it in itps:
@@ -135,10 +169,10 @@ for it in itps:
 def now():
     return time.clock_gettime(time.CLOCK_BOOTTIME)
 
-seg_spans = {i: [] for i in range(1,9)}
-# 外层循环100次，每次按 seg1..seg8 串行各一次
+seg_spans = {lbl: [] for lbl in labels}
+# 外层循环 count 次，每次按 labels 串行各一次
 for _ in range(count):
-    for si, it in enumerate(itps, start=1):
+    for si, it in enumerate(itps):
         inp = it.get_input_details()[0]
         # 随机输入（不串接上一段输出）
         dtype_name = getattr(inp['dtype'], '__name__', str(inp['dtype']))
@@ -151,20 +185,25 @@ for _ in range(count):
         it.set_tensor(inp['index'], x)
         t0 = now(); it.invoke(); t1 = now()
         _ = it.get_tensor(it.get_output_details()[0]['index'])  # 触发 TPU 回传
-        seg_spans[si].append({'begin': t0, 'end': t1})
+        lbl = labels[si]
+        seg_spans[lbl].append({'begin': t0, 'end': t1})
         # 每次 invoke 之间加入间隔
         try:
             time.sleep(gap_s)
         except Exception:
             pass
 
-for si in range(1,9):
-    with open(os.path.join(out_dir, f"seg{si}", "invokes.json"), 'w') as f:
-        json.dump({'name': f"sim_chain_seg{si}", 'spans': seg_spans[si]}, f)
+for lbl in labels:
+    with open(os.path.join(out_dir, lbl, "invokes.json"), 'w') as f:
+        json.dump({'name': f"sim_chain_{lbl}", 'spans': seg_spans[lbl]}, f)
 PY
 
-# 等待到持续时间结束
-sleep "$DUR"
+# 若设置 STOP_ON_COUNT=1，则按次数跑完即停；否则等待到持续时间结束
+if [[ "${STOP_ON_COUNT:-0}" == "1" ]]; then
+    :
+else
+    sleep "$DUR"
+fi
 
 # 停止采集并修正权限
 kill "$CATPID" 2>/dev/null || true
@@ -172,11 +211,11 @@ sleep 0.1 || true
 cat "$PW" | sudo -S -p '' chown "$USER:$USER" "$CAP" "$TM" 2>/dev/null || true
 cat "$PW" | sudo -S -p '' chmod 0644 "$CAP" "$TM" 2>/dev/null || true
 
-# 针对每段运行分析，生成 seg*/io_split_bt.json
-for i in 1 2 3 4 5 6 7 8; do
-  IV="$OUTDIR/seg${i}/invokes.json"
-  OUT_JSON="$OUTDIR/seg${i}/io_split_bt.json"
-  if [[ -f "$IV" ]]; then
+# 针对每段运行分析，生成 */io_split_bt.json（按存在的 invokes.json 动态遍历）
+for IV in "$OUTDIR"/*/invokes.json; do
+    [ -f "$IV" ] || continue
+    SEG_DIR="$(dirname "$IV")"
+    OUT_JSON="$SEG_DIR/io_split_bt.json"
     "$PY_ANALYZE" - "$CAP" "$IV" "$TM" <<'PY' | tee "$OUT_JSON" >/dev/null
 import json,sys,re,os
 cap, ivp, tmp = sys.argv[1:]
@@ -230,7 +269,6 @@ def agg(arr):
     return s
 print(json.dumps({'strict_first':strict[0] if strict else {},'loose_first':loose[0] if loose else {},'strict_overall':agg(strict),'loose_overall':agg(loose)}, ensure_ascii=False, indent=2))
 PY
-  fi
 done
 
 echo "完成，输出: $OUTDIR"

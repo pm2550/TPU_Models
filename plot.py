@@ -276,7 +276,7 @@ def plot_segments(pre, infer_, post, prefix="mobilenet"):
 # ---------------------
 def main():
     model_path = "./model/mobilenet.tflite"
-    model_path = "./models_local/public/inceptionv3_8seg_uniform_local/combos_K2_run1/tpu/seg1_int8_edgetpu.tflite"
+    # model_path = "./models_local/public/inceptionv3_8seg_uniform_local/combos_K2_run1/tpu/seg1_int8_edgetpu.tflite"
     # model_path = "./model/mobilenet+.tflite"
     # model_path = "./layered models/mn/tpu/mnv2_224_layer1_int8_edgetpu.tflite"
     # model_path = "./layered models/mn/tpu/mnv2_224_layer1_tiny_int8_edgetpu.tflite"
