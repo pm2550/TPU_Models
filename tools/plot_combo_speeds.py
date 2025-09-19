@@ -15,11 +15,12 @@ OUT_DIR = RES_DIR/'plots'
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Theory bandwidths used for LOWER-BOUND (LB) variants
-# Green line uses B_IN; Red line uses B_IN2 (variant). These are only for annotation.
-B_IN = 344  # MiB/s (original lower-bound)
-B_IN2 = 287 # MiB/s (variant lower-bound)
+# Green line uses B_IN; Red line uses B_IN2/B_OUT2 (variant). These are only for annotation.
+B_IN = 344 # MiB/s (original lower-bound)
+B_IN2 = 344 # MiB/s (variant lower-bound)
 # You can also annotate B_OUT if desired (used by the upper bound derivation)
-B_OUT = 65.0   # MiB/s
+B_OUT = 87.0   # MiB/s
+B_OUT2 = 35.0  # MiB/s (variant lower-bound Cout)
 
 MODELS = [
     'densenet201_8seg_uniform_local',
@@ -152,7 +153,32 @@ def plot_model(model, measured, lb, lb2, ub):
     y_lb2 = [lb2.get((model,K), math.nan) for K in Ks]
     y_ub = [ub.get((model,K), math.nan) for K in Ks]
     ax.plot(Ks, y_lb, '-o', color='green', label=f'theory LB (B_in={B_IN:.1f} MiB/s)', linewidth=1.8, markersize=3)
-    ax.plot(Ks, y_lb2, '-o', color='red', label=f'theory LB2 (B_in2={B_IN2:.1f} MiB/s)', linewidth=1.8, markersize=3)
+    # Draw LB2 only if it is not identical to LB (numerically) or if any variant bandwidth differs
+    same_series = True
+    for a,b in zip(y_lb, y_lb2):
+        if not (math.isfinite(a) and math.isfinite(b)):
+            continue
+        if abs(a-b) > 1e-6:
+            same_series = False
+            break
+    if (not same_series) or (B_IN2 != B_IN or B_OUT2 != B_OUT):
+        equal_in = (B_IN2 == B_IN)
+        equal_out = (B_OUT2 == B_OUT)
+        label = 'theory LB2'
+        ann = []
+        # If B_in is the same, show both B_out values
+        if equal_in and not equal_out:
+            ann.append(f"B_out: {B_OUT:.1f}→{B_OUT2:.1f}")
+        # If B_out is the same, show both B_in values
+        elif equal_out and not equal_in:
+            ann.append(f"B_in: {B_IN:.1f}→{B_IN2:.1f}")
+        # Otherwise show both pairs
+        elif not equal_in and not equal_out:
+            ann.append(f"B_in: {B_IN:.1f}→{B_IN2:.1f}")
+            ann.append(f"B_out: {B_OUT:.1f}→{B_OUT2:.1f}")
+        if ann:
+            label += ' (' + ', '.join(ann) + ' MiB/s)'
+        ax.plot(Ks, y_lb2, '-o', color='red', label=label, linewidth=1.8, markersize=3)
     ax.plot(Ks, y_ub, '-o', color='yellow', label='theory UB', linewidth=1.8, markersize=3)
 
     ax.set_title(f"{short} — time per cycle vs K (ms)")

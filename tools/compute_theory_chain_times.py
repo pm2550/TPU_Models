@@ -18,9 +18,9 @@ SPAN_SUMMARY = BASE/'results/models_local_batch_usbmon/single/combined_summary_s
 # Mapping per user: H2D (Cin) faster, D2H (Cout) slower
 #   B_IN  = 330 MiB/s  (Cin, host → device)
 #   B_OUT = 60  MiB/s  (Cout, device → host)
-# Variant lower-bound H2D bandwidth (MiB/s) for sensitivity line
-#   B_IN  = 330 MiB/s  (Cin, host → device)
-#   B_OUT = 60  MiB/s  (Cout, device → host)
+# Variant lower-bound bandwidths (MiB/s) for sensitivity/UB line
+#   B_IN2  (Cin variant, host → device)
+#   B_OUT2 (Cout variant, device → host)
 # Support env overrides so batch scripts can sweep bounds without editing this file.
 def _fenv(name: str, default: float) -> float:
     try:
@@ -34,20 +34,24 @@ def _fenv(name: str, default: float) -> float:
 # If False (default), read from environment with the defaults as fallbacks.
 USE_CODE_DEFAULTS = True
 # Hardcoded defaults (MiB/s)
-DEFAULT_B_IN = 344.0
-DEFAULT_B_OUT = 65.0
-DEFAULT_B_IN2 = 287.0  # used as the "UB"/variant line when applicable
+DEFAULT_B_IN = 344
+DEFAULT_B_OUT = 87.0
+DEFAULT_B_IN2 = 344   # lower variant for H2D
+DEFAULT_B_OUT2 = 35.0   # lower variant for D2H (assumption; override via env)
 
 
 if USE_CODE_DEFAULTS:
     B_IN = float(DEFAULT_B_IN)
     B_OUT = float(DEFAULT_B_OUT)
     B_IN2 = float(DEFAULT_B_IN2)
+    B_OUT2 = float(DEFAULT_B_OUT2)
 else:
     B_IN = _fenv('B_IN', DEFAULT_B_IN)
     B_OUT = _fenv('B_OUT', DEFAULT_B_OUT)
     # Variant lower-bound H2D bandwidth (MiB/s) for sensitivity line (used as second bound / UB)
     B_IN2 = _fenv('B_IN2', _fenv('UB', DEFAULT_B_IN2))
+    # Variant lower-bound D2H bandwidth
+    B_OUT2 = _fenv('B_OUT2', _fenv('UB_OUT', DEFAULT_B_OUT2))
 
 EPS_MS = 0.0   # small overhead per segment (ignored by default)
 
@@ -389,6 +393,7 @@ def compute_chain_times():
                 # Variant using B_IN2 for H2D only
                 Cin_ms_in2 = (d_in / (B_IN2 * 1024 * 1024.0)) * 1000.0 if d_in else 0.0
                 Cout_ms = (d_out / (B_OUT * 1024 * 1024.0)) * 1000.0 if d_out else 0.0
+                Cout_ms_in2 = (d_out / (B_OUT2 * 1024 * 1024.0)) * 1000.0 if d_out else 0.0
 
                 # Weight warm time for resident part (ms)
                 t_warm_ms = (w_warm_mib / B_IN) * 1000.0 if w_warm_mib else 0.0
@@ -430,7 +435,7 @@ def compute_chain_times():
 
                 # Group makespan bounds
                 Wi_lb_ms = Cin_ms + Cout_ms + Ce_ms + t_warm_ms + t_rem_lb_ms + EPS_MS
-                Wi_lb_ms_in2 = Cin_ms_in2 + Cout_ms + Ce_ms + t_warm_ms_in2 + t_rem_lb_ms_in2 + EPS_MS
+                Wi_lb_ms_in2 = Cin_ms_in2 + Cout_ms_in2 + Ce_ms + t_warm_ms_in2 + t_rem_lb_ms_in2 + EPS_MS
                 Wi_ub_ms = Cin_ms + Cout_ms + Ce_ms + t_warm_ms + t_rem_ub_ms + EPS_MS
                 Wi_lb_host_ms = Wi_lb_ms + delta_host_ms
                 Wi_lb_host_ms_in2 = Wi_lb_ms_in2 + delta_host_ms
@@ -451,6 +456,7 @@ def compute_chain_times():
                     'Cin_ms': round(Cin_ms, 3),
                     'Cin_ms_in2': round(Cin_ms_in2, 3),
                     'Cout_ms': round(Cout_ms, 3),
+                    'Cout_ms_in2': round(Cout_ms_in2, 3),
                     'Ce_ms': round(Ce_ms, 3),
                     't_warm_ms': round(t_warm_ms, 3),
                     't_warm_ms_in2': round(t_warm_ms_in2, 3),
@@ -477,6 +483,7 @@ def compute_chain_times():
                 'Cin_ms': '',
                 'Cin_ms_in2': '',
                 'Cout_ms': '',
+                'Cout_ms_in2': '',
                 'Ce_ms': '',
                 't_warm_ms': '',
                 't_warm_ms_in2': '',
@@ -499,7 +506,7 @@ def compute_chain_times():
             f,
             fieldnames=[
                 'model','K','group_index','group_name','group_segs',
-                'Cin_ms','Cin_ms_in2','Cout_ms','Ce_ms','t_warm_ms','t_warm_ms_in2','t_rem_lb_ms','t_rem_lb_ms_in2','t_rem_ub_ms',
+                'Cin_ms','Cin_ms_in2','Cout_ms','Cout_ms_in2','Ce_ms','t_warm_ms','t_warm_ms_in2','t_rem_lb_ms','t_rem_lb_ms_in2','t_rem_ub_ms',
                 'Wi_lb_ms','Wi_lb_ms_in2','Wi_ub_ms',
                 'Th_ms','Wi_lb_ms_hosted','Wi_lb_ms_hosted_in2','Wi_ub_ms_hosted',
                 'notes'
