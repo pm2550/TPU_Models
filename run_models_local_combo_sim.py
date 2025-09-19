@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+#
+# Batch combo (sim/chain) runner and analyzer
+#
+# Analyzer defaults (wide-window + strict span) inherited when invoking analyze_usbmon_active.py:
+# - STRICT_INVOKE_WINDOW=1           # use strict invoke window as base
+# - SHIFT_POLICY=in_tail_or_out_head # align tail to last IN, else head to first OUT
+# - SEARCH_TAIL_MS=120               # search window after t1 for last IN (ms)
+# - SEARCH_HEAD_MS=40                # search window after t0 for first OUT (ms)
+# - MAX_SHIFT_MS=150                 # clamp total shift (ms)
+# - SPAN_STRICT_PAIR=1               # span requires both S and C to lie within window (strict BoS..CoC)
+# - CLUSTER_GAP_MS=0.1               # IN C-cluster gap (ms) for hybrid IN intervals
+# 
+# Important: GAP_S is in SECONDS (s), not ms. For sim, prefer 0.05–0.2.
 import os
 import sys
 import json
@@ -54,7 +67,7 @@ def run_sim_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     env = os.environ.copy()
     env.setdefault('WARMUP', '0')
     # 无预热，脚本内部固定每段一次、循环100次；加每次 invoke 的间隔（秒）
-    # 注意：单位为秒。默认使用 0.1s（100ms），避免误填 100 造成长时间阻塞。
+    # 注意：单位为“秒(s)”。默认使用 0.1s（100ms），避免误填 100 造成长时间阻塞。
     env.setdefault('GAP_S', '0.1')
     dur = env.get('CAP_DUR', '120')
     cmd = [SIM_CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
@@ -286,13 +299,14 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
     try:
         if os.path.exists(ANALYZE_ACTIVE):
             env = os.environ.copy()
-            # 与离线脚本保持一致的默认参数
+            # 与“宽窗口 + 严格 span”口径保持一致的默认参数（可被外部环境覆盖）
             env.setdefault('STRICT_INVOKE_WINDOW', '1')
             env.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+            env.setdefault('SEARCH_TAIL_MS', '120')
+            env.setdefault('SEARCH_HEAD_MS', '40')
+            env.setdefault('MAX_SHIFT_MS', '150')
+            env.setdefault('SPAN_STRICT_PAIR', '1')
             env.setdefault('CLUSTER_GAP_MS', '0.1')
-            env.setdefault('SEARCH_TAIL_MS', '20')
-            env.setdefault('SEARCH_HEAD_MS', '10')
-            env.setdefault('MAX_SHIFT_MS', '30')
             res = subprocess.run([SYS_PY, ANALYZE_ACTIVE, usbmon_file, invokes_file, time_map_file],
                                  capture_output=True, text=True, env=env, check=False)
             if res.returncode == 0 and res.stdout:

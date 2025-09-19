@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# NOTE:
+# - GAP_S is in SECONDS (s), not ms. Typical values for sim: 0.05–0.2
+# - This script writes invokes.json per segment; analysis defaults are configured in the Python runner.
 set -euo pipefail
 
 # 用法: ./run_usbmon_chain_offline_sim.sh <tpu_dir> <name> <out_dir> <bus> <duration_s>
@@ -13,6 +16,7 @@ NAME_BASE="$2"
 OUTDIR="$3"
 BUS="$4"
 DUR="$5"
+# GAP between invokes (seconds)
 GAP_S="${GAP_S:-0.1}"
 # 可选：自定义段序列（例如 "1,2,3,4,full"）；默认使用 1..8
 SEG_LIST_ENV="${SEG_LIST:-}"
