@@ -87,17 +87,16 @@ def compute_bo_span_in_window(bo_s, bo_c, bo_co, window_start, window_end):
     last_c = bo_c[j] if j >= 0 and bo_c[j] >= window_start else None
     
     span = 0.0
+    total_bytes = 0
     if first_s is not None and last_c is not None and last_c > first_s:
         span = last_c - first_s
-    
-    # 计算窗口内总bytes
-    total_bytes = 0
-    for ts, nb in bo_co:
-        if ts < window_start:
-            continue
-        if ts > window_end:
-            break
-        total_bytes += int(nb or 0)
+        # 仅统计S->C区间的Bo完成字节
+        for ts, nb in bo_co:
+            if ts < first_s:
+                continue
+            if ts > last_c:
+                break
+            total_bytes += int(nb or 0)
     
     return span, total_bytes
 
@@ -121,33 +120,64 @@ def main():
     
     MiB = 1024.0 * 1024.0
     
+    # 先预计算每个窗口的Bo统计
+    pre_results = []
     for i, (ws, we) in enumerate(windows):
         span, total_bytes = compute_bo_span_in_window(bo_s, bo_c, bo_co, ws, we)
-        
-        # 确定模型 (按循环顺序)
-        model_idx = i % len(model_order)
-        model = model_order[model_idx]
-        cycle = i // len(model_order)
-        
-        speed = (total_bytes / MiB) / span if span > 0 and total_bytes > 0 else 0.0
-        
-        result = {
+        is_valid = span > 0 and total_bytes > 0
+        speed = (total_bytes / MiB) / span if is_valid else 0.0
+        pre_results.append({
             'window': i,
-            'cycle': cycle,
-            'model': model,
             'window_start': ws,
             'window_end': we,
             'window_duration_ms': (we - ws) * 1000,
             'bo_span_s': span,
             'bo_bytes': total_bytes,
-            'bo_speed_MiBps': speed
-        }
-        results.append(result)
-        
-        if span > 0 and total_bytes > 0:
-            model_stats[model]['spans'].append(span)
-            model_stats[model]['bytes'].append(total_bytes)
-            model_stats[model]['speeds'].append(speed)
+            'bo_speed_MiBps': speed,
+            'valid': is_valid
+        })
+
+    # 从第一个有效窗口开始，向后遍历，分配恰好100个“有效+不错位”的invoke到模型轮转；
+    # 无效/错位窗口跳过分配但保留记录，避免轮次错位
+    first_valid_idx = next((r['window'] for r in pre_results if r['valid']), 0)
+    assign_target = 100
+    assigned = 0
+    traversed = 0
+    valid_invoke_idx = 0
+    invalid_count = 0
+    mismatch_count = 0
+    results = []
+    i = first_valid_idx
+    while assigned < assign_target and i < len(pre_results):
+        r = pre_results[i]
+        is_valid = r['valid']
+        mismatch = False
+        model = None
+        cycle = None
+        if is_valid:
+            model = model_order[valid_invoke_idx % len(model_order)]
+            cycle = valid_invoke_idx // len(model_order)
+            # resnet101的体积特征：若明显过小，视为错位，跳过分配
+            if model == 'resnet101' and r['bo_bytes'] < (40 * 1024 * 1024):
+                mismatch = True
+                mismatch_count += 1
+                model = None
+                cycle = None
+            else:
+                # 接受该窗口作为当前模型的一次有效invoke
+                model_stats[model]['spans'].append(r['bo_span_s'])
+                model_stats[model]['bytes'].append(r['bo_bytes'])
+                model_stats[model]['speeds'].append(r['bo_speed_MiBps'])
+                valid_invoke_idx += 1
+                assigned += 1
+        else:
+            invalid_count += 1
+
+        r_out = dict(r)
+        r_out.update({'model': model, 'cycle': cycle, 'mismatch': mismatch})
+        results.append(r_out)
+        traversed += 1
+        i += 1
     
     # 统计每个模型
     def percentile(values, p):
@@ -163,24 +193,30 @@ def main():
         return sorted_vals[i] * (1-f) + sorted_vals[i+1] * f
     
     print(f"\n{'='*60}")
-    print("按模型统计 (基于invoke节点顺序):")
-    print(f"{'模型':<12} {'数量':<4} {'p50':<8} {'p80':<8} {'p85':<8} {'p90':<8} {'p95':<8}")
+    print("按模型统计 (严格基于有效invoke节点顺序):")
+    print(f"{'模型':<12} {'数量':<4} {'均值':<8} {'下限':<8} {'上限':<8} {'p50':<8} {'p95':<8}")
     print("-" * 60)
     
     summary = {}
     for model in model_order:
         speeds = model_stats[model]['speeds']
         if speeds:
+            # 加权平均：Σbytes/Σspan
+            total_bytes = sum(model_stats[model]['bytes'])
+            total_span = sum(model_stats[model]['spans'])
+            mean_speed = (total_bytes / total_span) / (1024*1024) if total_span > 0 else 0.0
+            mn = min(speeds)
+            mx = max(speeds)
             p50 = percentile(speeds, 50)
-            p80 = percentile(speeds, 80)
-            p85 = percentile(speeds, 85)
-            p90 = percentile(speeds, 90)
             p95 = percentile(speeds, 95)
-            print(f"{model:<12} {len(speeds):<4} {p50:<8.1f} {p80:<8.1f} {p85:<8.1f} {p90:<8.1f} {p95:<8.1f}")
+            print(f"{model:<12} {len(speeds):<4} {mean_speed:<8.1f} {mn:<8.1f} {mx:<8.1f} {p50:<8.1f} {p95:<8.1f}")
             summary[model] = {
                 'count': len(speeds),
-                'p50': p50, 'p80': p80, 'p85': p85, 'p90': p90, 'p95': p95,
-                'min': min(speeds), 'max': max(speeds)
+                'weighted_mean': mean_speed,
+                'p50': p50,
+                'p95': p95,
+                'min': mn,
+                'max': mx
             }
         else:
             print(f"{model:<12} {0:<4} {'0.0':<8} {'0.0':<8} {'0.0':<8} {'0.0':<8} {'0.0':<8}")
@@ -188,6 +224,11 @@ def main():
     # 保存详细结果
     output = {
         'total_windows': len(windows),
+        'start_window': first_valid_idx,
+        'traversed_windows': traversed,
+        'assigned_invokes': assigned,
+        'invalid_windows_skipped': invalid_count,
+        'mismatch_windows_skipped': mismatch_count,
         'per_model_summary': summary,
         'detailed_results': results
     }
@@ -199,11 +240,11 @@ def main():
     print(f"\n详细结果已保存到: {output_path}")
     
     # 显示前几个窗口的详情
-    print(f"\n前10个invoke窗口详情:")
-    print(f"{'#':<3} {'模型':<12} {'窗口时长':<8} {'Bo span':<8} {'字节':<10} {'速度':<8}")
+    print(f"\n前10个invoke窗口详情 (含无效窗口):")
+    print(f"{'#':<3} {'模型':<12} {'窗口时长':<8} {'Bo span':<8} {'字节':<10} {'速度':<8} {'有效':<4}")
     print("-" * 60)
     for i, r in enumerate(results[:10]):
-        print(f"{i:<3} {r['model']:<12} {r['window_duration_ms']:<8.1f} {r['bo_span_s']:<8.3f} {r['bo_bytes']:<10} {r['bo_speed_MiBps']:<8.1f}")
+        print(f"{i:<3} {str(r['model']):<12} {r['window_duration_ms']:<8.1f} {r['bo_span_s']:<8.3f} {r['bo_bytes']:<10} {r['bo_speed_MiBps']:<8.1f} {str(r['valid']):<4}")
 
 if __name__ == '__main__':
     main()
