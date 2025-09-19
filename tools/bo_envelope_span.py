@@ -157,11 +157,22 @@ def main():
         avg_span = sum(x['span_s'] for x in xs)/len(xs)
         avg_bytes = sum(x['bytes_out'] for x in xs)/len(xs)
         speed = (avg_bytes/MiB)/avg_span if avg_span>0 else 0.0
+        # per-span speeds (skip invalid spans)
+        speeds = []
+        for x in xs:
+            s = x.get('span_s') or 0.0
+            b = x.get('bytes_out') or 0
+            if s > 0:
+                speeds.append((b/MiB)/s)
+        min_speed = min(speeds) if speeds else 0.0
+        max_speed = max(speeds) if speeds else 0.0
         out[seg] = {
             'count': len(xs),
             'avg_span_s': avg_span,
             'avg_bytes_out': int(avg_bytes),
             'speed_MiBps': speed,
+            'min_speed_MiBps': min_speed,
+            'max_speed_MiBps': max_speed,
         }
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
