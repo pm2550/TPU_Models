@@ -13,8 +13,8 @@
     对于窗口内的 C 而其对应 S 不在窗口内的，则用 C 完成时间按小间隙聚类（由 CLUSTER_GAP_MS 控制）。
 
 纯计算时间：
-- pure_compute_ms = invoke_ms - io_union_both_ms（推荐口径，扣 IN 混合 ∪ OUT URB 的并集）。
-- pure_ms_in_only = invoke_ms - in_union_cluster_ms（仅扣 IN 的 C 聚簇，可作为流式口径参考）。
+- pure_invoke_ms =  Last C Bo和下一个 任意 Bi之间的距离
+- pure_compute_ms = invoke_ms - io_span_sum_ms 
 
 可选 off-chip 校正（实验特性）：
 - 若设置了 OFFCHIP_OUT_THEORY_MIBPS（或兼容变量 OFFCHIP_OUT_MIBPS），

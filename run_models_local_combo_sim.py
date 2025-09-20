@@ -5,9 +5,9 @@
 # Analyzer defaults (wide-window + strict span) inherited when invoking analyze_usbmon_active.py:
 # - STRICT_INVOKE_WINDOW=1           # use strict invoke window as base
 # - SHIFT_POLICY=in_tail_or_out_head # align tail to last IN, else head to first OUT
-# - SEARCH_TAIL_MS=120               # search window after t1 for last IN (ms)
+# - SEARCH_TAIL_MS=40               # search window after t1 for last IN (ms)
 # - SEARCH_HEAD_MS=40                # search window after t0 for first OUT (ms)
-# - MAX_SHIFT_MS=150                 # clamp total shift (ms)
+# - MAX_SHIFT_MS=50                 # clamp total shift (ms)
 # - SPAN_STRICT_PAIR=1               # span requires both S and C to lie within window (strict BoS..BiC)
 # - CLUSTER_GAP_MS=0.1               # IN C-cluster gap (ms) for hybrid IN intervals
 # 
