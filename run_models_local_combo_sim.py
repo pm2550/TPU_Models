@@ -4,6 +4,8 @@
 #
 # Per-invoke gap (sleep between invokes):
 # - INVOKE_GAP_MS=100               # milliseconds; default 100ms
+#   sim: 作为唯一间隔参数传入模拟脚本
+#   chain: 映射为 STAGE_GAP_MS 传入真实链脚本（两者单位同为毫秒）
 #
 # Analyzer defaults (wide-window + strict span) inherited when invoking analyze_usbmon_active.py:
 # - STRICT_INVOKE_WINDOW=1           # use strict invoke window as base
@@ -88,6 +90,13 @@ def run_real_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     env.setdefault('WARMUP', '0')
     env.setdefault('COUNT', '1')
     env.setdefault('STOP_ON_COUNT', '1')
+    # 统一：将 INVOKE_GAP_MS（毫秒）映射为 STAGE_GAP_MS（毫秒）供真实链使用
+    if 'INVOKE_GAP_MS' in env and str(env['INVOKE_GAP_MS']).strip() != '':
+        env['STAGE_GAP_MS'] = env['INVOKE_GAP_MS']
+        try:
+            print(f"[chain] 每段间隔(STAGE_GAP_MS)来源 INVOKE_GAP_MS: {env['INVOKE_GAP_MS']} ms")
+        except Exception:
+            pass
     # 默认持续 60s，可通过 CAP_DUR 覆盖
     dur = os.environ.get('CAP_DUR', '60')
     cmd = [CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
