@@ -2,16 +2,19 @@
 #
 # Batch combo (sim/chain) runner and analyzer
 #
+# Per-invoke gap (sleep between invokes):
+# - INVOKE_GAP_MS=100               # milliseconds; default 100ms
+#
 # Analyzer defaults (wide-window + strict span) inherited when invoking analyze_usbmon_active.py:
 # - STRICT_INVOKE_WINDOW=1           # use strict invoke window as base
 # - SHIFT_POLICY=in_tail_or_out_head # align tail to last IN, else head to first OUT
-# - SEARCH_TAIL_MS=40               # search window after t1 for last IN (ms)
+# - SEARCH_TAIL_MS=40                # search window after t1 for last IN (ms)
 # - SEARCH_HEAD_MS=40                # search window after t0 for first OUT (ms)
-# - MAX_SHIFT_MS=50                 # clamp total shift (ms)
+# - MAX_SHIFT_MS=50                  # clamp total shift (ms)
 # - SPAN_STRICT_PAIR=1               # span requires both S and C to lie within window (strict BoS..BiC)
 # - CLUSTER_GAP_MS=0.1               # IN C-cluster gap (ms) for hybrid IN intervals
 # 
-# Important: GAP_S is in SECONDS (s), not ms. For sim, prefer 0.05–0.2.
+# Important: INVOKE_GAP_MS is ms. For sim, prefer 50–200 ms.
 import os
 import sys
 import json
@@ -67,9 +70,13 @@ def run_sim_chain(tpu_dir: str, model_name: str, out_dir: str, bus: str):
     os.makedirs(out_dir, exist_ok=True)
     env = os.environ.copy()
     env.setdefault('WARMUP', '0')
-    # 无预热，脚本内部固定每段一次、循环100次；加每次 invoke 的间隔（秒）
-    # 注意：单位为“秒(s)”。默认使用 0.1s（100ms），避免误填 100 造成长时间阻塞。
-    env.setdefault('GAP_S', '0.1')
+    # 只允许使用 INVOKE_GAP_MS（毫秒），默认 100ms；shell 脚本侧会自行换算为秒
+    try:
+        ms = float(env.get('INVOKE_GAP_MS', '100'))
+    except Exception:
+        ms = 100.0
+    env['INVOKE_GAP_MS'] = f"{ms:.3f}"
+    print(f"[sim] 每次invoke间隔: {env['INVOKE_GAP_MS']} ms")
     dur = env.get('CAP_DUR', '120')
     cmd = [SIM_CHAIN_CAPTURE_SCRIPT, tpu_dir, model_name, out_dir, bus, dur]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)

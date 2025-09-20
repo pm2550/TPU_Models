@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NOTE:
-# - GAP_S is in SECONDS (s), not ms. Typical values for sim: 0.05–0.2
+# - INVOKE_GAP_MS is in milliseconds (ms). This is the ONLY knob for per-invoke gap.
 # - This script writes invokes.json per segment; analysis defaults are configured in the Python runner.
 set -euo pipefail
 
@@ -16,8 +16,11 @@ NAME_BASE="$2"
 OUTDIR="$3"
 BUS="$4"
 DUR="$5"
-# GAP between invokes (seconds)
-GAP_S="${GAP_S:-0.1}"
+# Per-invoke gap in ms (default 100)
+INVOKE_GAP_MS_VAL="${INVOKE_GAP_MS:-100}"
+if ! [[ "$INVOKE_GAP_MS_VAL" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+  INVOKE_GAP_MS_VAL="100"
+fi
 # 可选：自定义段序列（例如 "1,2,3,4,full"）；默认使用 1..8
 SEG_LIST_ENV="${SEG_LIST:-}"
 
@@ -122,9 +125,10 @@ tpu_dir, out_dir, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
 seg_list_env = sys.argv[4] if len(sys.argv) > 4 else ''
 gap_s = 0.1
 try:
-    gap_s = float(os.environ.get('GAP_S', '0.1'))
+    ms = float(os.environ.get('INVOKE_GAP_MS', '100'))
 except Exception:
-    gap_s = 0.1
+    ms = 100.0
+gap_s = ms/1000.0 if ms > 0 else 0.0
 labels = []
 if seg_list_env:
     # 支持形如 "1,2,3,4,full" 或 "seg1,seg2,seg3,seg4,full"
