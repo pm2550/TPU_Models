@@ -8,7 +8,7 @@
 # - SEARCH_TAIL_MS=120               # search window after t1 for last IN (ms)
 # - SEARCH_HEAD_MS=40                # search window after t0 for first OUT (ms)
 # - MAX_SHIFT_MS=150                 # clamp total shift (ms)
-# - SPAN_STRICT_PAIR=1               # span requires both S and C to lie within window (strict BoS..CoC)
+# - SPAN_STRICT_PAIR=1               # span requires both S and C to lie within window (strict BoS..BiC)
 # - CLUSTER_GAP_MS=0.1               # IN C-cluster gap (ms) for hybrid IN intervals
 # 
 # Important: GAP_S is in SECONDS (s), not ms. For sim, prefer 0.05–0.2.
@@ -34,6 +34,7 @@ CORRECT_PER_INVOKE = "/home/10210/Desktop/OS/tools/correct_per_invoke_stats.py"
 MODELS = [
     "densenet201_8seg_uniform_local",
     "inceptionv3_8seg_uniform_local",
+    "mobilenetv2_8seg_uniform_local",
     "resnet101_8seg_uniform_local",
     "resnet50_8seg_uniform_local",
     "xception_8seg_uniform_local",
