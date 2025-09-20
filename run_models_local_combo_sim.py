@@ -7,14 +7,16 @@
 #   sim: 作为唯一间隔参数传入模拟脚本
 #   chain: 映射为 STAGE_GAP_MS 传入真实链脚本（两者单位同为毫秒）
 #
-# Analyzer defaults (wide-window + strict span) inherited when invoking analyze_usbmon_active.py:
-# - STRICT_INVOKE_WINDOW=1           # use strict invoke window as base
-# - SHIFT_POLICY=in_tail_or_out_head # align tail to last IN, else head to first OUT
-# - SEARCH_TAIL_MS=40                # search window after t1 for last IN (ms)
-# - SEARCH_HEAD_MS=40                # search window after t0 for first OUT (ms)
-# - MAX_SHIFT_MS=50                  # clamp total shift (ms)
-# - SPAN_STRICT_PAIR=1               # span requires both S and C to lie within window (strict BoS..BiC)
-# - CLUSTER_GAP_MS=0.1               # IN C-cluster gap (ms) for hybrid IN intervals
+# Analyzer defaults when invoking analyze_usbmon_active.py:
+# - STRICT_INVOKE_WINDOW=1                 # strict invoke window as base
+# - SHIFT_POLICY=tail_last_BiC_guard_BoS   # tail align to last IN(C), then guard head by BoS
+# - SEARCH_TAIL_MS=40                      # tail-side search for last IN (ms)
+# - SEARCH_HEAD_MS=40                      # head-side search window for BoS guard (ms)
+# - EXTRA_HEAD_EXPAND_MS=10                # allow small head expand to include BoS
+# - MAX_SHIFT_MS=50                        # clamp total shift (ms)
+# - SPAN_STRICT_PAIR=1                     # span requires both S and C to lie within window (strict S..C)
+# - MIN_URB_BYTES=65536                    # ignore tiny URBs when picking S/C for span
+# - CLUSTER_GAP_MS=0.1                     # IN C-cluster gap (ms) for hybrid IN intervals
 # 
 # Important: INVOKE_GAP_MS is ms. For sim, prefer 50–200 ms.
 import os
@@ -316,13 +318,15 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
     try:
         if os.path.exists(ANALYZE_ACTIVE):
             env = os.environ.copy()
-            # 与“宽窗口 + 严格 span”口径保持一致的默认参数（可被外部环境覆盖）
+            # 严格窗口 + 尾对齐IN并以BoS守卫头部 的默认参数（可被外部覆盖）
             env.setdefault('STRICT_INVOKE_WINDOW', '1')
-            env.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
-            env.setdefault('SEARCH_TAIL_MS', '120')
+            env.setdefault('SHIFT_POLICY', 'tail_last_BiC_guard_BoS')
+            env.setdefault('SEARCH_TAIL_MS', '40')
             env.setdefault('SEARCH_HEAD_MS', '40')
-            env.setdefault('MAX_SHIFT_MS', '150')
+            env.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
+            env.setdefault('MAX_SHIFT_MS', '50')
             env.setdefault('SPAN_STRICT_PAIR', '1')
+            env.setdefault('MIN_URB_BYTES', '65536')
             env.setdefault('CLUSTER_GAP_MS', '0.1')
             res = subprocess.run([SYS_PY, ANALYZE_ACTIVE, usbmon_file, invokes_file, time_map_file],
                                  capture_output=True, text=True, env=env, check=False)
@@ -495,5 +499,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

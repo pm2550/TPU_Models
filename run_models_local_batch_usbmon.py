@@ -116,7 +116,12 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
         env['INVOKE_GAP_MS'] = os.environ['INVOKE_GAP_MS']
     # 标准分析相关缺省（仅记录、便于追溯）
     env.setdefault('STRICT_INVOKE_WINDOW', '1')
-    env.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+    env.setdefault('SHIFT_POLICY', 'tail_last_BiC_guard_BoS')
+    env.setdefault('SEARCH_TAIL_MS', '40')
+    env.setdefault('SEARCH_HEAD_MS', '40')
+    env.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
+    env.setdefault('MAX_SHIFT_MS', '50')
+    env.setdefault('MIN_URB_BYTES', '65536')
     env.setdefault('CLUSTER_GAP_MS', '0.1')
     # 统一写入 CAP_DUR 到 env，便于记录
     if USE_CHAIN_MODE:
@@ -355,7 +360,13 @@ def analyze_performance(outdir, model_name, seg_num):
                         if v is not None:
                             env_ana[k] = str(v)
                 env_ana.setdefault('STRICT_INVOKE_WINDOW', '1')
-                env_ana.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+                env_ana.setdefault('SHIFT_POLICY', 'tail_last_BiC_guard_BoS')
+                env_ana.setdefault('SEARCH_TAIL_MS', '40')
+                env_ana.setdefault('SEARCH_HEAD_MS', '40')
+                env_ana.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
+                env_ana.setdefault('MAX_SHIFT_MS', '50')
+                env_ana.setdefault('SPAN_STRICT_PAIR', '1')
+                env_ana.setdefault('MIN_URB_BYTES', '65536')
                 env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
                 # 开启 off-chip 校正的默认值；未提供理论速率时 analyzer 默认 320 MiB/s
                 env_ana.setdefault('OFFCHIP_ENABLE', '1')
@@ -432,7 +443,13 @@ def analyze_performance(outdir, model_name, seg_num):
                             if v is not None:
                                 env_ana[k] = str(v)
                     env_ana.setdefault('STRICT_INVOKE_WINDOW', '1')
-                    env_ana.setdefault('SHIFT_POLICY', 'in_tail_or_out_head')
+                    env_ana.setdefault('SHIFT_POLICY', 'tail_last_BiC_guard_BoS')
+                    env_ana.setdefault('SEARCH_TAIL_MS', '40')
+                    env_ana.setdefault('SEARCH_HEAD_MS', '40')
+                    env_ana.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
+                    env_ana.setdefault('MAX_SHIFT_MS', '50')
+                    env_ana.setdefault('SPAN_STRICT_PAIR', '1')
+                    env_ana.setdefault('MIN_URB_BYTES', '65536')
                     env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
                     env_ana.setdefault('OFFCHIP_ENABLE', '1')
                     res_ana = subprocess.run(
@@ -580,6 +597,7 @@ def analyze_performance(outdir, model_name, seg_num):
                     k: os.environ.get(k) for k in [
                         'INVOKE_GAP_MS','COUNT','CAP_DUR','STRICT_INVOKE_WINDOW','SHIFT_POLICY','CLUSTER_GAP_MS',
                         'ACTIVE_EXPAND_MS','SEARCH_TAIL_MS','SEARCH_HEAD_MS','MAX_SHIFT_MS','USBMON_DEV',
+                        'EXTRA_HEAD_EXPAND_MS','MIN_URB_BYTES',
                         'OFFCHIP_ENABLE','OFFCHIP_OUT_THEORY_MIBPS','OFFCHIP_OUT_MIBPS','OFFCHIP_OUT_THEORY_MIB_PER_MS',
                         'MUTATE_INPUT'
                     ]

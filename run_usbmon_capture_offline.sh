@@ -268,12 +268,12 @@ ANA_PY="/home/10210/Desktop/OS/analyze_usbmon_active.py"
 if [[ -f "$ANA_PY" ]]; then
     echo "运行严格窗口分析器: $ANA_PY"
     STRICT_INVOKE_WINDOW="${STRICT_INVOKE_WINDOW:-1}" \
-    SHIFT_POLICY="${SHIFT_POLICY:-in_tail_or_out_head}" \
+    SHIFT_POLICY="${SHIFT_POLICY:-tail_last_BiC_guard_BoS}" \
     CLUSTER_GAP_MS="${CLUSTER_GAP_MS:-0.1}" \
-    SEARCH_TAIL_MS="${SEARCH_TAIL_MS:-20}" \
-    SEARCH_HEAD_MS="${SEARCH_HEAD_MS:-10}" \
-    MAX_SHIFT_MS="${MAX_SHIFT_MS:-30}" \
+    SEARCH_TAIL_MS="${SEARCH_TAIL_MS:-40}" \
+    SEARCH_HEAD_MS="${SEARCH_HEAD_MS:-40}" \
+    EXTRA_HEAD_EXPAND_MS="${EXTRA_HEAD_EXPAND_MS:-10}" \
+    MIN_URB_BYTES="${MIN_URB_BYTES:-65536}" \
+    MAX_SHIFT_MS="${MAX_SHIFT_MS:-50}" \
     "$PY_ANALYZE" "$ANA_PY" "$CAP" "$IV" "$TM" > "$OUTDIR/active_analysis_strict.json" || echo "严格分析器执行失败，已跳过"
 fi
-
-
