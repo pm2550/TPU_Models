@@ -30,6 +30,7 @@ import argparse
 VENV_PY = "/home/10210/Desktop/OS/.venv/bin/python"
 SYS_PY = "python3"
 MODELS_BASE = "/home/10210/Desktop/OS/models_local/public"
+OFFLINE_ALIGN = "/home/10210/Desktop/OS/tools/offline_align_usbmon_ref.py"
 # 保持原模拟结果目录不变；真实链式写入独立目录避免覆盖
 RESULTS_BASE_SIM = "/home/10210/Desktop/OS/results/models_local_combo_sim"
 RESULTS_BASE_CHAIN = "/home/10210/Desktop/OS/results/models_local_combo_chain"
@@ -46,6 +47,31 @@ MODELS = [
     "resnet50_8seg_uniform_local",
     "xception_8seg_uniform_local",
 ]
+
+
+def ensure_usbmon_time_map(usbmon_file: str, time_map_file: str, invokes_file: str):
+    """If time_map lacks usbmon_ref, try offline alignment once."""
+    if not (usbmon_file and time_map_file and invokes_file):
+        return
+    if not os.path.exists(time_map_file) or not os.path.exists(invokes_file):
+        return
+    try:
+        tm = json.load(open(time_map_file))
+    except Exception:
+        return
+    if tm.get('usbmon_ref') is not None:
+        return
+    if not os.path.exists(OFFLINE_ALIGN):
+        return
+    py_exec = VENV_PY if os.path.exists(VENV_PY) else SYS_PY
+    cmd = [py_exec, OFFLINE_ALIGN, usbmon_file, invokes_file, time_map_file, '--min-urb-bytes', '65536']
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if res.returncode != 0:
+            msg = res.stderr.strip() or res.stdout.strip()
+            print(f"[warn] 离线 usbmon 对齐失败 ({res.returncode}): {msg}", file=sys.stderr)
+    except Exception as exc:
+        print(f"[warn] 离线 usbmon 对齐异常: {exc}", file=sys.stderr)
 
 def check_deps(mode: str):
     if mode == 'sim':
@@ -114,6 +140,8 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
     # 仅要求 usbmon/time_map/invokes 存在即可分析
     if not (os.path.exists(usbmon_file) and os.path.exists(time_map_file) and os.path.exists(invokes_file)):
         return None
+
+    ensure_usbmon_time_map(usbmon_file, time_map_file, invokes_file)
 
     # 活跃IO分析：改为基于 correct_per_invoke_stats 的全局“最大重叠分配”结果（跨窗去重）
     active_data = {}

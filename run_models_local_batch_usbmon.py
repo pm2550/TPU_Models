@@ -29,10 +29,36 @@ RESULTS_BASE = "/home/10210/Desktop/OS/results/models_local_batch_usbmon"
 CAPTURE_SCRIPT = "/home/10210/Desktop/OS/run_usbmon_capture_offline.sh"
 CHAIN_CAPTURE_SCRIPT = "/home/10210/Desktop/OS/run_usbmon_chain_offline.sh"
 SIM_CHAIN_CAPTURE_SCRIPT = "/home/10210/Desktop/OS/run_usbmon_chain_offline_sim.sh"
+OFFLINE_ALIGN = "/home/10210/Desktop/OS/tools/offline_align_usbmon_ref.py"
 
 # 是否使用链式模式（seg1..seg8 串联 set→invoke→get）
 USE_CHAIN_MODE = False
 USE_SIM_CHAIN = False  # 是否使用模拟链式（K 组合用单次/不预热/循环100）
+
+
+def ensure_usbmon_time_map(usbmon_file: str, time_map_file: str, invokes_file: str):
+    """Ensure time_map has usbmon_ref by invoking offline aligner if needed."""
+    if not (usbmon_file and time_map_file and invokes_file):
+        return
+    if not os.path.exists(time_map_file) or not os.path.exists(invokes_file):
+        return
+    try:
+        tm = json.load(open(time_map_file))
+    except Exception:
+        return
+    if tm.get('usbmon_ref') is not None:
+        return
+    if not os.path.exists(OFFLINE_ALIGN):
+        return
+    py_exec = VENV_PY if os.path.exists(VENV_PY) else SYS_PY
+    cmd = [py_exec, OFFLINE_ALIGN, usbmon_file, invokes_file, time_map_file, '--min-urb-bytes', '65536']
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if res.returncode != 0:
+            msg = res.stderr.strip() or res.stdout.strip()
+            print(f"[warn] 离线 usbmon 对齐失败 ({res.returncode}): {msg}", file=sys.stderr)
+    except Exception as exc:
+        print(f"[warn] 离线 usbmon 对齐异常: {exc}", file=sys.stderr)
 
 def check_dependencies():
     """检查依赖"""
@@ -333,7 +359,9 @@ def analyze_performance(outdir, model_name, seg_num):
     
     if not os.path.exists(invokes_file):
         return None
-    
+
+    ensure_usbmon_time_map(usbmon_file, time_map_file, invokes_file)
+
     try:
         # 读取推理时间数据（需要先读取以获取spans）
         with open(invokes_file) as f:
