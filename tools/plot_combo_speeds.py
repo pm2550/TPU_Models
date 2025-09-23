@@ -152,7 +152,8 @@ def plot_model(model, measured, lb, lb2, ub):
     y_lb = [lb.get((model,K), math.nan) for K in Ks]
     y_lb2 = [lb2.get((model,K), math.nan) for K in Ks]
     y_ub = [ub.get((model,K), math.nan) for K in Ks]
-    ax.plot(Ks, y_lb, '-o', color='green', label=f'theory LB (B_in={B_IN:.1f} MiB/s)', linewidth=1.8, markersize=3)
+    # Green: show simple label without parentheses details
+    ax.plot(Ks, y_lb, '-o', color='green', label='theory LB', linewidth=1.8, markersize=3)
     # Draw LB2 only if it is not identical to LB (numerically) or if any variant bandwidth differs
     same_series = True
     for a,b in zip(y_lb, y_lb2):
@@ -162,24 +163,10 @@ def plot_model(model, measured, lb, lb2, ub):
             same_series = False
             break
     if (not same_series) or (B_IN2 != B_IN or B_OUT2 != B_OUT):
-        equal_in = (B_IN2 == B_IN)
-        equal_out = (B_OUT2 == B_OUT)
-        label = 'theory LB2'
-        ann = []
-        # If B_in is the same, show both B_out values
-        if equal_in and not equal_out:
-            ann.append(f"B_out: {B_OUT:.1f}→{B_OUT2:.1f}")
-        # If B_out is the same, show both B_in values
-        elif equal_out and not equal_in:
-            ann.append(f"B_in: {B_IN:.1f}→{B_IN2:.1f}")
-        # Otherwise show both pairs
-        elif not equal_in and not equal_out:
-            ann.append(f"B_in: {B_IN:.1f}→{B_IN2:.1f}")
-            ann.append(f"B_out: {B_OUT:.1f}→{B_OUT2:.1f}")
-        if ann:
-            label += ' (' + ', '.join(ann) + ' MiB/s)'
-        ax.plot(Ks, y_lb2, '-o', color='red', label=label, linewidth=1.8, markersize=3)
-    ax.plot(Ks, y_ub, '-o', color='yellow', label='theory UB', linewidth=1.8, markersize=3)
+        # Red: rename to match the former yellow line name "theory UB"
+        ax.plot(Ks, y_lb2, '-o', color='red', label='theory UB', linewidth=1.8, markersize=3)
+    # Yellow line hidden per request (previously: theory UB)
+    # ax.plot(Ks, y_ub, '-o', color='yellow', label='theory UB', linewidth=1.8, markersize=3)
 
     ax.set_title(f"{short} — time per cycle vs K (ms)")
     ax.set_xlabel('K (segments)')
@@ -206,6 +193,104 @@ def main():
     print("Saved:")
     for p in outs:
         print(p)
+
+    # After plotting, compute coverage metrics for filtered (inlier) points
+    print("\nCoverage metrics (filtered points, per model; UB = 红线LB2)")
+    Ks = list(range(2,9))
+    overall = {
+        'n_total': 0,
+        'n_within': 0,
+        'n_above': 0,
+        'n_below': 0,
+        # Above-only severity accumulators
+        'sev_sum_ratio': 0.0,
+        'sev_sum_ms': 0.0,
+        'sev_count': 0,
+        # Overall OOB severity accumulators (both below and above)
+        'sev_oob_sum_ratio': 0.0,
+        'sev_oob_sum_ms': 0.0,
+        'sev_oob_count': 0,
+    }
+    for model in MODELS:
+        n_total = n_within = n_above = n_below = 0
+        # Above-only severity (ratio, ms, count)
+        sev_sum_ratio = sev_sum_ms = 0.0
+        sev_count = 0
+        # Overall OOB severity (ratio, ms, count)
+        sev_oob_sum_ratio = sev_oob_sum_ms = 0.0
+        sev_oob_count = 0
+        for K in Ks:
+            arr_all = measured.get((model, K), [])
+            if not arr_all:
+                continue
+            arr_in, _ = (arr_all, [])
+            if OUTLIER_FILTER:
+                arr_in, _ = split_inliers_outliers(arr_all)
+            l = lb.get((model, K), math.nan)
+            u = lb2.get((model, K), math.nan)  # use red line (LB2) as UB
+            if not (math.isfinite(l) and math.isfinite(u)):
+                continue
+            # ensure proper ordering for interval checks
+            lo = min(l, u)
+            hi = max(l, u)
+            for t in arr_in:
+                n_total += 1
+                if t < lo:
+                    n_below += 1
+                    # OOB overall severity relative to lower bound
+                    if lo > 0:
+                        sev_oob_sum_ratio += (lo - t) / lo
+                    sev_oob_sum_ms += (lo - t)
+                    sev_oob_count += 1
+                elif t > hi:
+                    n_above += 1
+                    if hi > 0:
+                        sev_sum_ratio += (t - hi) / hi
+                    sev_sum_ms += (t - hi)
+                    sev_count += 1
+                    # Also accumulate into overall OOB
+                    if hi > 0:
+                        sev_oob_sum_ratio += (t - hi) / hi
+                    sev_oob_sum_ms += (t - hi)
+                    sev_oob_count += 1
+                else:
+                    n_within += 1
+        # Aggregate overall
+        overall['n_total'] += n_total
+        overall['n_within'] += n_within
+        overall['n_above'] += n_above
+        overall['n_below'] += n_below
+        overall['sev_sum_ratio'] += sev_sum_ratio
+        overall['sev_sum_ms'] += sev_sum_ms
+        overall['sev_count'] += sev_count
+        overall['sev_oob_sum_ratio'] += sev_oob_sum_ratio
+        overall['sev_oob_sum_ms'] += sev_oob_sum_ms
+        overall['sev_oob_count'] += sev_oob_count
+        # Rates for this model
+        if n_total > 0:
+            cover_rate = n_within / n_total
+            oob_rate = (n_above + n_below) / n_total
+            above_rate = n_above / n_total
+            sev_ratio_avg = (sev_sum_ratio / sev_count) if sev_count > 0 else 0.0
+            sev_oob_ratio_avg = (sev_oob_sum_ratio / sev_oob_count) if sev_oob_count > 0 else 0.0
+            # Print concise per-model metrics
+            short = model.split('_')[0]
+            print(f"- {short}: 覆盖率={cover_rate:.1%}, 超界率={oob_rate:.1%}, 超上界率={above_rate:.1%}, 越界严重度(超上界,均值比例)={sev_ratio_avg:.2%}, 越界严重度(总体,均值比例)={sev_oob_ratio_avg:.2%} | 样本数={n_total}")
+        else:
+            short = model.split('_')[0]
+            print(f"- {short}: 无可用样本（缺少上下界或测量点）")
+
+    # Overall summary
+    n_total = overall['n_total']
+    if n_total > 0:
+        cover_rate = overall['n_within'] / n_total
+        oob_rate = (overall['n_above'] + overall['n_below']) / n_total
+        above_rate = overall['n_above'] / n_total
+        sev_ratio_avg = (overall['sev_sum_ratio'] / overall['sev_count']) if overall['sev_count'] > 0 else 0.0
+        sev_oob_ratio_avg = (overall['sev_oob_sum_ratio'] / overall['sev_oob_count']) if overall['sev_oob_count'] > 0 else 0.0
+        print(f"总体: 覆盖率={cover_rate:.1%}, 超界率={oob_rate:.1%}, 超上界率={above_rate:.1%}, 越界严重度(超上界,均值比例)={sev_ratio_avg:.2%}, 越界严重度(总体,均值比例)={sev_oob_ratio_avg:.2%} | 样本数={n_total}")
+    else:
+        print("总体: 无可用样本（缺少上下界或测量点）")
 
 if __name__ == '__main__':
     main()

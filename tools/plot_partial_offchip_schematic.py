@@ -1,0 +1,415 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Render a two-lane (USB, TPU) schematic for partial off-chip execution.
+The USB lane shows H2D -> Weight streaming -> D2H, while the TPU lane
+shows compute. Long H2D spans are visually compressed with an axis break.
+"""
+import argparse
+import math
+from pathlib import Path
+
+# Global font delta applied to all text sizes (in px)
+FONT_DELTA = 0.0
+
+def svg_rect(x, y, w, h, fill, stroke="#000", sw=1, rx=3, ry=3, opacity=1.0):
+    return (f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" '
+            f'rx="{rx}" ry="{ry}" fill="{fill}" fill-opacity="{opacity}" '
+            f'stroke="{stroke}" stroke-width="{sw}" />')
+
+def svg_text(x, y, s, size=12, anchor='middle', weight='normal', family='DejaVu Sans, Arial'):
+    # Apply global font delta
+    final_size = max(6.0, float(size) + float(FONT_DELTA))
+    return (f'<text x="{x:.2f}" y="{y:.2f}" text-anchor="{anchor}" '
+            f'font-family="{family}" font-size="{final_size}" '
+            f'font-weight="{weight}">{s}</text>')
+
+def main():
+    ap = argparse.ArgumentParser(description='USB/TPU partial off-chip schematic (SVG).')
+    ap.add_argument('--h2d', type=float, default=15.152, help='H2D duration (ms)')
+    ap.add_argument('--compute', type=float, default=0.568, help='Compute duration (ms)')
+    ap.add_argument('--d2h', type=float, default=0.060, help='D2H duration (ms)')
+    ap.add_argument('--wstream', type=float, default=3.206, help='Weight streaming duration (ms)')
+    ap.add_argument('--outfile', type=str, default='results/plots/partial_offchip_pipeline.svg')
+    ap.add_argument('--h2d-compress', type=float, default=0.30, help='Visual compression factor for H2D (0-1]')
+    ap.add_argument('--other-compress', type=float, default=1.0, help='Visual compression for the other segments (0-1]')
+    # Axis break/ticks controls
+    ap.add_argument('--axis-left-end', type=float, default=2.0, help='Right-most tick on left segment before break (ms)')
+    ap.add_argument('--axis-right-start', type=float, default=10.0, help='Left-most tick on right segment after break (ms)')
+    ap.add_argument('--tick-left-step', type=float, default=1.0, help='Tick step on the left segment (ms)')
+    ap.add_argument('--tick-right-step', type=float, default=1.0, help='Tick step on the right segment (ms)')
+    ap.add_argument('--break-gap', type=float, default=28.0, help='Pixel width of the axis break gap')
+    ap.add_argument('--break-stub-len', type=float, default=10.0, help='Horizontal stub length at both sides of the break (px)')
+    ap.add_argument('--break-slash-clear', type=float, default=4.0, help='Half clearance around slashes center (px)')
+    ap.add_argument('--axis-left-overhang', type=float, default=0.5, help='Extra visible range beyond left end (ms), not labeled')
+    ap.add_argument('--axis-right-overhang', type=float, default=0.5, help='Extra visible range before right start (ms), not labeled')
+    ap.add_argument('--summary-text', type=str, default=None, help='Custom summary text shown below the axis; if omitted, a default is generated')
+    ap.add_argument('--copies', type=int, default=2, help='How many stacked copies of the schematic to draw')
+    ap.add_argument('--copy-gap', type=float, default=36.0, help='Vertical gap between copies (px)')
+    ap.add_argument('--use-measured', action='store_true', help='Use measured durations to draw geometry (applies to all copies unless --copy-modes is set)')
+    ap.add_argument('--swow-ms', type=float, default=None, help='Streaming without off-chip weight duration (ms); defaults to max(H2D - wstream, 0)')
+    ap.add_argument('--copy-modes', type=str, default=None, help='Comma-separated per-copy modes: original or measured, e.g., "original,measured"')
+    ap.add_argument('--axis-mode', type=str, default='auto', choices=['auto','original','measured'], help='Which mode to use for axis timeline; auto uses the first copy mode')
+    ap.add_argument('--font-delta', type=float, default=0.0, help='Increase all font sizes by this many px (e.g., 2.0 to go up one size)')
+    ap.add_argument('--legend-gap-below', type=float, default=28.0, help='Extra vertical gap between the legend and the lanes (px)')
+    ap.add_argument('--legend-gap-between', type=float, default=16.0, help='Horizontal gap between legend items (px)')
+    ap.add_argument('--legend-row-gap', type=float, default=8.0, help='Vertical gap between legend rows (px)')
+    # Bottom-copy overrides (apply to copy index 1 if provided)
+    ap.add_argument('--bottom-swow-ms', type=float, default=None, help='Bottom copy: streaming without off-chip weight duration (ms)')
+    ap.add_argument('--bottom-compute', type=float, default=None, help='Bottom copy: compute duration (ms)')
+    ap.add_argument('--bottom-d2h', type=float, default=None, help='Bottom copy: D2H duration (ms)')
+    ap.add_argument('--bottom-wstream', type=float, default=None, help='Bottom copy: off-chip weight streaming duration (ms)')
+    ap.add_argument('--bottom-h2d', type=float, default=None, help='Bottom copy: H2D duration (ms) (used only if mode=original for bottom)')
+    args = ap.parse_args()
+
+    pad_l, pad_r, pad_t, pad_b = 90.0, 60.0, 40.0, 60.0
+    # Set global font delta
+    global FONT_DELTA
+    FONT_DELTA = float(args.font_delta)
+    lane_h = 26.0
+    lane_gap = 34.0
+    lane_round = 4
+    scale = 60.0  # px per ms (before compression)
+
+    # Actual timeline boundaries
+    ch = max(0.05, min(1.0, args.h2d_compress))  # kept for CLI compatibility (not used in x mapping now)
+    co = max(0.05, min(1.0, args.other_compress))
+
+    t0 = 0.0
+    # Prepare duration calculators
+    swow = args.swow_ms if args.swow_ms is not None else max(0.0, args.h2d - args.wstream)
+    def compute_durations(mode: str, idx: int):
+        # Determine per-copy base values
+        if idx == 1:  # bottom copy overrides if provided
+            wstream = args.bottom_wstream if args.bottom_wstream is not None else args.wstream
+            compute = args.bottom_compute if args.bottom_compute is not None else args.compute
+            d2h = args.bottom_d2h if args.bottom_d2h is not None else args.d2h
+            # H2D geometry always uses the per-copy 'streaming without' (swow)
+            if mode == 'measured' and args.bottom_swow_ms is not None:
+                h2d_duration = args.bottom_swow_ms
+            else:
+                # derive from provided bottom h2d/wstream if available, else fall back to global swow
+                base_h2d = args.bottom_h2d if args.bottom_h2d is not None else args.h2d
+                base_wstream = wstream
+                h2d_duration = max(0.0, base_h2d - base_wstream)
+        else:
+            wstream = args.wstream
+            compute = args.compute
+            d2h = args.d2h
+            # H2D geometry uses global 'swow' when measured, otherwise compute difference as well
+            if mode == 'measured' and args.swow_ms is not None:
+                h2d_duration = args.swow_ms
+            else:
+                h2d_duration = max(0.0, args.h2d - args.wstream)
+        return {
+            'h2d': h2d_duration,
+            'wstream': wstream,
+            'compute': compute,
+            'd2h': d2h,
+        }
+
+    # Determine per-copy modes
+    copies = max(1, int(args.copies))
+    if args.copy_modes:
+        raw_modes = [s.strip().lower() for s in args.copy_modes.split(',') if s.strip()]
+        copy_modes = []
+        for i in range(copies):
+            m = raw_modes[i] if i < len(raw_modes) else (raw_modes[-1] if raw_modes else ('measured' if args.use_measured else 'original'))
+            copy_modes.append('measured' if m == 'measured' else 'original')
+    else:
+        copy_modes = [('measured' if args.use_measured else 'original') for _ in range(copies)]
+
+    # Axis mode selection
+    if args.axis_mode == 'auto':
+        axis_mode = copy_modes[0]
+    else:
+        axis_mode = args.axis_mode
+
+    # Axis timeline durations (shared mapping)
+    axis_durs = compute_durations(axis_mode, 0)
+    h2d_s, h2d_e = 0.0, axis_durs['h2d']
+    ws_s, ws_e = h2d_e, h2d_e + axis_durs['wstream']
+    comp_s, comp_e = ws_e, ws_e + axis_durs['compute']
+    d2h_s, d2h_e = comp_e, comp_e + axis_durs['d2h']
+    total_actual = d2h_e
+
+    # Broken-axis configuration
+    left_end_val = max(0.0, args.axis_left_end)
+    right_start_val = max(left_end_val + 1e-3, args.axis_right_start)
+    if right_start_val > total_actual:
+        right_start_val = max(left_end_val + 1e-3, min(total_actual, args.axis_right_start))
+
+    # Visual overhangs (extend visible line a bit beyond tick ranges without labeling)
+    left_overhang = max(0.0, args.axis_left_overhang)
+    right_overhang = max(0.0, args.axis_right_overhang)
+    left_vis_end = min(total_actual, left_end_val + left_overhang)
+    right_vis_start = max(0.0, right_start_val - right_overhang)
+    if right_vis_start <= left_vis_end + 1e-6:
+        # Ensure a non-zero gap in time domain
+        mid = (left_vis_end + right_vis_start) / 2.0
+        left_vis_end = mid - 1e-3
+        right_vis_start = mid + 1e-3
+
+    gap = max(8.0, float(args.break_gap))  # pixels between left and right axis segments
+
+    # Compute overall width using uniform scale on both sides (use visual endpoints)
+    axis_visual_width = scale * (left_vis_end - t0) + gap + scale * (total_actual - right_vis_start)
+    # Baseline geometry (copy 0)
+    legend_gap_below = max(0.0, float(args.legend_gap_below))
+    usb_y0 = pad_t + legend_gap_below
+    tpu_y0 = usb_y0 + lane_h + lane_gap
+    # One copy vertical extent from its USB top to below summary text
+    # y_base = tpu_y + lane_h + 12, tick labels go to +28, summary at +50
+    per_copy_height = (tpu_y0 - usb_y0) + lane_h + 62.0  # (lane_h+lane_gap) + lane_h + 62
+    per_copy_height = 2 * lane_h + lane_gap + 62.0
+    copy_gap = max(0.0, float(args.copy_gap))
+    # Compute tight total height based on the bottom-most content of the last copy
+    last_offset = (copies - 1) * (per_copy_height + copy_gap)
+    usb_y_last = usb_y0 + last_offset
+    tpu_y_last = tpu_y0 + last_offset
+    y_base_last = tpu_y_last + lane_h + 12.0
+    # Tick labels extend to y_base + 28; add a tiny safety margin
+    bottom_content = y_base_last + 28.0
+    # If summary text is present, it sits lower at y_base + 50
+    if args.summary_text:
+        bottom_content = max(bottom_content, y_base_last + 50.0)
+    total_h = bottom_content + pad_b
+
+    col_h2d = '#1f77b4'
+    col_d2h = '#d62728'
+    col_comp = '#7f7f7f'
+    col_stream = '#f3dcb4'
+
+    # Prepare legend metrics first to ensure the canvas is wide enough to contain it
+    legend_y = 16.0
+    sw_w, sw_h = 28.0, 16.0
+    label_gap = 7.0
+    gap_between = max(0.0, float(args.legend_gap_between))
+    mono_family = 'DejaVu Sans Mono, Menlo, Consolas, monospace'
+    items = [
+        (col_h2d, 'Streaming without off-chip weight', 'h2dHatch'),
+        (col_comp, 'Compute', None),
+        (col_stream, 'Off-chip weight streaming', 'wstreamCross'),
+        (col_d2h, 'D2H', 'd2hHatch'),
+    ]
+    # Scale label width estimate by font size change (baseline 12px)
+    font_scale = (12.0 + FONT_DELTA) / 12.0
+    widths = [sw_w + label_gap + len(name)*7.8 * font_scale for _c, name, _p in items]
+    # Two-per-row layout
+    row1_idx = [0,1]
+    row2_idx = [2,3] if len(items) > 2 else []
+    row1_w = sum(widths[i] for i in row1_idx) + (len(row1_idx)-1)*gap_between
+    row2_w = sum(widths[i] for i in row2_idx) + (len(row2_idx)-1)*gap_between if row2_idx else 0.0
+    legend_w = max(row1_w, row2_w)
+
+    # Ensure the canvas is wide enough to fit both axis and legend (with margins)
+    min_canvas_w = legend_w + 40.0  # ~20px margins on both sides
+    total_w = max(pad_l + axis_visual_width + pad_r + 80.0, min_canvas_w)
+
+    out = []
+    out.append(f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w:.0f}" height="{total_h:.0f}">')
+    out.append('<defs>')
+    out.append('<marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">'
+               '<path d="M0,0 L0,7 L9,3.5 z" fill="#4d4d4d" /></marker>')
+    out.append('<pattern id="h2dHatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">'
+               '<rect width="6" height="6" fill="none" />'
+               '<path d="M 0 0 L 0 6" stroke="#000000" stroke-width="1.2" opacity="0.55" />'
+               '</pattern>')
+    out.append('<pattern id="d2hHatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(135)">'
+               '<rect width="6" height="6" fill="none" />'
+               '<path d="M 0 0 L 0 6" stroke="#000000" stroke-width="1.2" opacity="0.55" />'
+               '</pattern>')
+    out.append('<pattern id="wstreamCross" patternUnits="userSpaceOnUse" width="6" height="6">'
+               '<rect width="6" height="6" fill="none" />'
+               '<path d="M 0 0 L 0 6" stroke="#000000" stroke-width="1.1" opacity="0.55" />'
+               '<path d="M 0 0 L 6 0" stroke="#000000" stroke-width="1.1" opacity="0.55" />'
+               '</pattern>')
+    out.append('</defs>')
+
+    # Raise legend higher (further from bars)
+    # Two rows of legend items, centered per row
+    row_gap = max(0.0, float(args.legend_row_gap))
+    # Row 1
+    lx1 = (total_w - row1_w)/2.0
+    xc = lx1
+    for i in row1_idx:
+        fill_color, name, pattern_id = items[i]
+        rect_y = legend_y - sw_h + 2
+        out.append(svg_rect(xc, rect_y, sw_w, sw_h, fill_color, sw=0.8, rx=2, ry=2, opacity=0.95))
+        if pattern_id:
+            out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pattern_id})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
+        out.append(svg_text(xc + sw_w + label_gap, legend_y, name, anchor='start', size=12, family=mono_family))
+        xc += sw_w + label_gap + len(name)*7.8 + gap_between
+    # Row 2
+    if row2_idx:
+        legend_y2 = legend_y + sw_h + row_gap
+        lx2 = (total_w - row2_w)/2.0
+        xc = lx2
+        for i in row2_idx:
+            fill_color, name, pattern_id = items[i]
+            rect_y = legend_y2 - sw_h + 2
+            out.append(svg_rect(xc, rect_y, sw_w, sw_h, fill_color, sw=0.8, rx=2, ry=2, opacity=0.95))
+            if pattern_id:
+                out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pattern_id})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
+            out.append(svg_text(xc + sw_w + label_gap, legend_y2, name, anchor='start', size=12, family=mono_family))
+            xc += sw_w + label_gap + len(name)*7.8 + gap_between
+
+    # Lane labels will be drawn per copy
+
+    def map_time_broken(actual: float) -> float | None:
+        """Map an actual time (ms) to x with a broken axis.
+        Left segment shows [0 .. left_end_val], right segment shows [right_start_val .. total_actual].
+        Returns None if actual is in the elided gap (left_end_val, right_start_val).
+        """
+        if actual <= left_vis_end + 1e-9:
+            return pad_l + scale * (actual - t0)
+        if actual >= right_vis_start - 1e-9:
+            return pad_l + scale * (left_vis_end - t0) + gap + scale * (actual - right_vis_start)
+        return None
+
+    def draw_block(y: float, start_t: float, end_t: float, color: str, hatch: str | None,
+                   label: str | None = None, label_offset_y: float = -6.0, opacity: float = 0.95):
+        """Draw a horizontal block, keeping visual continuity across the broken axis.
+        - If the block lies fully in left or right segment: draw normally.
+        - If it spans across the omitted middle: draw a single rectangle from mapped(start) to mapped(end),
+          visually continuous over the break (axis shows the break).
+        - If it is partially in the gap: draw only the visible portion (closest boundary).
+        """
+        # Normalize
+        start_t = max(start_t, t0)
+        end_t = min(end_t, total_actual)
+        if end_t - start_t <= 1e-9:
+            return
+
+        def map_endpoint(t: float):
+            return map_time_broken(t)
+
+        # Cases
+        if end_t <= left_vis_end + 1e-9:
+            # Entirely in left
+            x1 = map_endpoint(start_t)
+            x2 = map_endpoint(end_t)
+        elif start_t >= right_vis_start - 1e-9:
+            # Entirely in right
+            x1 = map_endpoint(start_t)
+            x2 = map_endpoint(end_t)
+        elif start_t <= left_vis_end + 1e-9 and end_t >= right_vis_start - 1e-9:
+            # Spans across the gap – draw one continuous rect from left start to right end
+            x1 = map_endpoint(start_t)
+            x2 = map_endpoint(end_t)
+        elif start_t <= left_vis_end + 1e-9 and end_t > left_vis_end + 1e-9 and end_t < right_vis_start - 1e-9:
+            # Ends in gap – draw up to left boundary
+            x1 = map_endpoint(start_t)
+            x2 = map_endpoint(left_vis_end)
+        elif start_t > left_vis_end + 1e-9 and start_t < right_vis_start - 1e-9 and end_t >= right_vis_start - 1e-9:
+            # Starts in gap – draw from right boundary
+            x1 = map_endpoint(right_vis_start)
+            x2 = map_endpoint(end_t)
+        else:
+            # Entirely in gap – nothing visible
+            return
+
+        if x1 is None or x2 is None:
+            return
+
+        x = min(x1, x2)
+        w = abs(x2 - x1)
+        out.append(svg_rect(x, y, w, lane_h, color, rx=lane_round, ry=lane_round, opacity=opacity))
+        if hatch:
+            out.append(svg_rect(x, y, w, lane_h, f'url(#{hatch})', stroke='none', sw=0, rx=lane_round, ry=lane_round, opacity=1.0))
+        if label:
+            out.append(svg_text(x + w/2, y + label_offset_y, label, size=11))
+
+    def render_one(y_offset: float, idx: int):
+        usb_y = usb_y0 + y_offset
+        tpu_y = tpu_y0 + y_offset
+
+        # Lane labels
+        out.append(svg_text(pad_l/2, usb_y + lane_h*0.65, 'USB', anchor='middle', size=12, weight='bold'))
+        out.append(svg_text(pad_l/2, tpu_y + lane_h*0.65, 'TPU', anchor='middle', size=12, weight='bold'))
+
+        # Blocks
+        mode = copy_modes[idx]
+        durs = compute_durations(mode, idx)
+        # Local starts/ends for this copy's blocks (but mapping still uses axis timeline)
+        lh2d_s, lh2d_e = 0.0, durs['h2d']
+        lws_s, lws_e = lh2d_e, lh2d_e + durs['wstream']
+        lcomp_s, lcomp_e = lws_e, lws_e + durs['compute']
+        # Place D2H after compute so compute is between streaming and D2H
+        ld2h_s, ld2h_e = lcomp_e, lcomp_e + durs['d2h']
+
+        # Always display H2D label as (H2D - wstream) for this copy, while geometry follows per-copy mode
+        h2d_display = durs['h2d']
+        draw_block(usb_y, lh2d_s, lh2d_e, col_h2d, 'h2dHatch', label=f"{h2d_display:.3f}", label_offset_y=-6.0, opacity=0.95)
+        draw_block(usb_y, lws_s, lws_e, col_stream, 'wstreamCross', label=f"{durs['wstream']:.3f}", label_offset_y=lane_h + 18.0, opacity=0.92)
+        draw_block(usb_y, ld2h_s, ld2h_e, col_d2h, 'd2hHatch', label=f"{durs['d2h']:.3f}", label_offset_y=-6.0, opacity=0.95)
+        draw_block(tpu_y, lcomp_s, lcomp_e, col_comp, None, label=f"{durs['compute']:.3f}", label_offset_y=-6.0, opacity=0.65)
+
+        # Axis (only for the first copy to share one axis)
+        if idx == 0:
+            base_x1 = pad_l
+            y_base = tpu_y + lane_h + 12.0
+            left_end_x = map_time_broken(left_vis_end) or base_x1
+            right_start_x = map_time_broken(right_vis_start) or (base_x1 + scale * (left_vis_end - t0) + gap)
+            axis_end_line = map_time_broken(total_actual) or right_start_x
+            axis_end = axis_end_line + 60.0
+
+            # Break with stubs
+            break_center = (left_end_x + right_start_x) / 2.0
+            stub_len = max(0.0, float(args.break_stub_len))
+            slash_clear = max(0.0, float(args.break_slash_clear))
+            gap_width = max(0.0, right_start_x - left_end_x)
+            left_axis_end_draw = min(left_end_x + stub_len, break_center - slash_clear)
+            right_axis_start_draw = max(right_start_x - stub_len, break_center + slash_clear)
+            if right_axis_start_draw - left_axis_end_draw < 6.0:
+                left_axis_end_draw = left_end_x
+                right_axis_start_draw = right_start_x
+                slash_clear = max(4.0, gap_width / 4.0)
+
+            out.append(f'<line x1="{base_x1:.2f}" y1="{y_base:.2f}" x2="{left_axis_end_draw:.2f}" y2="{y_base:.2f}" stroke="#4d4d4d" stroke-width="1.3" />')
+            out.append(f'<path d="M {break_center-5:.2f},{(y_base-3):.2f} L {break_center-1:.2f},{(y_base+3):.2f}" stroke="#4d4d4d" stroke-width="1.3" />')
+            out.append(f'<path d="M {break_center+1:.2f},{(y_base-3):.2f} L {break_center+5:.2f},{(y_base+3):.2f}" stroke="#4d4d4d" stroke-width="1.3" />')
+            out.append(f'<line x1="{right_axis_start_draw:.2f}" y1="{y_base:.2f}" x2="{axis_end:.2f}" y2="{y_base:.2f}" stroke="#4d4d4d" stroke-width="1.3" marker-end="url(#arrowhead)" />')
+
+            # Ticks
+            lstep = max(1e-6, args.tick_left_step)
+            rstep = max(1e-6, args.tick_right_step)
+            val = 0.0
+            while val <= left_end_val + 1e-9:
+                x_pos = map_time_broken(val)
+                if x_pos is not None:
+                    out.append(f'<line x1="{x_pos:.2f}" y1="{(y_base-7):.2f}" x2="{x_pos:.2f}" y2="{(y_base+7):.2f}" stroke="#4d4d4d" stroke-width="1.1" />')
+                    out.append(svg_text(x_pos, y_base + 28.0, f"{int(round(val))}", anchor='middle', size=12))
+                val += lstep
+
+            start = math.ceil(right_start_val / rstep) * rstep
+            start = round(start, 6)
+            val = start
+            ticks_max = math.ceil(total_actual)
+            while val <= ticks_max + 1e-9:
+                x_pos = map_time_broken(val)
+                if x_pos is not None:
+                    out.append(f'<line x1="{x_pos:.2f}" y1="{(y_base-7):.2f}" x2="{x_pos:.2f}" y2="{(y_base+7):.2f}" stroke="#4d4d4d" stroke-width="1.1" />')
+                    out.append(svg_text(x_pos, y_base + 28.0, f"{int(round(val))}", anchor='middle', size=12))
+                val = round(val + rstep, 6)
+
+            # Optional summary only if user provides text
+            if args.summary_text:
+                mono_family = 'DejaVu Sans Mono, Menlo, Consolas, monospace'
+                x_center = (pad_l + axis_end_line) / 2.0
+                out.append(svg_text(x_center, y_base + 50.0, args.summary_text, anchor='middle', size=12, family=mono_family))
+
+    # Render requested number of copies stacked vertically
+    for i in range(copies):
+        y_offset = i * (per_copy_height + copy_gap)
+        render_one(y_offset, i)
+
+    out.append('</svg>')
+
+    out_path = Path(args.outfile)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text('\n'.join(out), encoding='utf-8')
+    print(out_path)
+
+if __name__ == '__main__':
+    main()

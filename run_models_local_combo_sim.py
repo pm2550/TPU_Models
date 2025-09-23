@@ -15,7 +15,7 @@
 # - EXTRA_HEAD_EXPAND_MS=10                # allow small head expand to include BoS
 # - MAX_SHIFT_MS=50                        # clamp total shift (ms)
 # - SPAN_STRICT_PAIR=1                     # span requires both S and C to lie within window (strict S..C)
-# - MIN_URB_BYTES=65536                    # ignore tiny URBs when picking S/C for span
+# - MIN_URB_BYTES=512                   # ignore tiny URBs when picking S/C for span
 # - CLUSTER_GAP_MS=0.1                     # IN C-cluster gap (ms) for hybrid IN intervals
 # 
 # Important: INVOKE_GAP_MS is ms. For sim, prefer 50–200 ms.
@@ -64,7 +64,7 @@ def ensure_usbmon_time_map(usbmon_file: str, time_map_file: str, invokes_file: s
     if not os.path.exists(OFFLINE_ALIGN):
         return
     py_exec = VENV_PY if os.path.exists(VENV_PY) else SYS_PY
-    cmd = [py_exec, OFFLINE_ALIGN, usbmon_file, invokes_file, time_map_file, '--min-urb-bytes', '65536']
+    cmd = [py_exec, OFFLINE_ALIGN, usbmon_file, invokes_file, time_map_file, '--min-urb-bytes', '512']
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if res.returncode != 0:
@@ -354,7 +354,7 @@ def analyze_performance(combo_root: str, seg_dir: str, model_name: str, seg_labe
             env.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
             env.setdefault('MAX_SHIFT_MS', '50')
             env.setdefault('SPAN_STRICT_PAIR', '1')
-            env.setdefault('MIN_URB_BYTES', '65536')
+            env.setdefault('MIN_URB_BYTES', '512')
             env.setdefault('CLUSTER_GAP_MS', '0.1')
             res = subprocess.run([SYS_PY, ANALYZE_ACTIVE, usbmon_file, invokes_file, time_map_file],
                                  capture_output=True, text=True, env=env, check=False)

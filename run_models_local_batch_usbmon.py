@@ -51,7 +51,7 @@ def ensure_usbmon_time_map(usbmon_file: str, time_map_file: str, invokes_file: s
     if not os.path.exists(OFFLINE_ALIGN):
         return
     py_exec = VENV_PY if os.path.exists(VENV_PY) else SYS_PY
-    cmd = [py_exec, OFFLINE_ALIGN, usbmon_file, invokes_file, time_map_file, '--min-urb-bytes', '65536']
+    cmd = [py_exec, OFFLINE_ALIGN, usbmon_file, invokes_file, time_map_file, '--min-urb-bytes', '512']
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if res.returncode != 0:
@@ -147,7 +147,7 @@ def run_segment_test(model_name, seg_num, model_file, bus, outdir):
     env.setdefault('SEARCH_HEAD_MS', '40')
     env.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
     env.setdefault('MAX_SHIFT_MS', '50')
-    env.setdefault('MIN_URB_BYTES', '65536')
+    env.setdefault('MIN_URB_BYTES', '512')
     env.setdefault('CLUSTER_GAP_MS', '0.1')
     # 统一写入 CAP_DUR 到 env，便于记录
     if USE_CHAIN_MODE:
@@ -394,7 +394,7 @@ def analyze_performance(outdir, model_name, seg_num):
                 env_ana.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
                 env_ana.setdefault('MAX_SHIFT_MS', '50')
                 env_ana.setdefault('SPAN_STRICT_PAIR', '1')
-                env_ana.setdefault('MIN_URB_BYTES', '65536')
+                env_ana.setdefault('MIN_URB_BYTES', '512')
                 env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
                 # 开启 off-chip 校正的默认值；未提供理论速率时 analyzer 默认 320 MiB/s
                 env_ana.setdefault('OFFCHIP_ENABLE', '1')
@@ -477,7 +477,7 @@ def analyze_performance(outdir, model_name, seg_num):
                     env_ana.setdefault('EXTRA_HEAD_EXPAND_MS', '10')
                     env_ana.setdefault('MAX_SHIFT_MS', '50')
                     env_ana.setdefault('SPAN_STRICT_PAIR', '1')
-                    env_ana.setdefault('MIN_URB_BYTES', '65536')
+                    env_ana.setdefault('MIN_URB_BYTES', '512')
                     env_ana.setdefault('CLUSTER_GAP_MS', '0.1')
                     env_ana.setdefault('OFFCHIP_ENABLE', '1')
                     res_ana = subprocess.run(

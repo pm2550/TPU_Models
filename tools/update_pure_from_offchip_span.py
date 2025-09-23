@@ -27,7 +27,7 @@ OUT_CSV = BASE / 'five_models/results/single_pure_invoke_times.csv'
 THEORY_SEG = BASE / 'five_models/baselines/theory_io_seg.json'
 
 
-Bin_speed = 330.0
+Bin_speed = 325
 
 def load_combined_span():
     """Load combined span stats: returns {model:{seg:{pre:float, post:float, count:int, theory:float}}}."""

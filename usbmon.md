@@ -1,6 +1,10 @@
 models_local 模型所在位置
 five_models 模型参数信息和结果文件位置
 
+模型usbmon测算结果放置位置
+results/models_local_batch_usbmon
+results/models_local_combo_chain
+results/models_local_combo_sim
 
 analyze_usbmon_active.py 总分析文件
 analyze_host_time.py 提取host 处理时间长度
@@ -10,3 +14,4 @@ tools/run_full_models_alternate.sh 交错跑模型临时脚本
 tools/plot_combo_speeds.py 画theory invoke time
 tools/compute_theory_chain_times.py 计算theory time脚本
 tools/update_pure_from_offchip_span.py 根据平均速度调整off-chip pure invoke 大小
+tools/offline_align_usbmon_ref.py 离线对齐脚本

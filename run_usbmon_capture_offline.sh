@@ -273,7 +273,7 @@ if [[ -f "$ANA_PY" ]]; then
     SEARCH_TAIL_MS="${SEARCH_TAIL_MS:-40}" \
     SEARCH_HEAD_MS="${SEARCH_HEAD_MS:-40}" \
     EXTRA_HEAD_EXPAND_MS="${EXTRA_HEAD_EXPAND_MS:-10}" \
-    MIN_URB_BYTES="${MIN_URB_BYTES:-65536}" \
+    MIN_URB_BYTES="${MIN_URB_BYTES:-512}" \
     MAX_SHIFT_MS="${MAX_SHIFT_MS:-50}" \
     "$PY_ANALYZE" "$ANA_PY" "$CAP" "$IV" "$TM" > "$OUTDIR/active_analysis_strict.json" || echo "严格分析器执行失败，已跳过"
 fi

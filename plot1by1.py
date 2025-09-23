@@ -248,11 +248,12 @@ def plot_segments(pre, infer_, post, output_dir="./results", prefix="mobilenet")
 def main():
     model_path1 = "./model/mobilenet.tflite"
     model_path2 = "./model/mobilenet2.tflite"
+    model_path1 = "models_local/public/mobilenetv2_8seg_uniform_local/full_split_pipeline_local/tpu/co_compile_full_1.0_vs_full/full_int8_edgetpu.tflite"
     # model_path = "./model/mobilenet_cpu2.tflite"
     # model_path1 = "./model/test for cache/7m.tflite"
     # model_path2 = "./model/test for cache/mn7.tflite"
     # model_path2="./edgetpu/test_data/inception_v1_224_quant_edgetpu.tflite"
-    num_runs   = 1000
+    num_runs   = 100
 
     # 5-1 Start system monitoring
     monitor_data = []
