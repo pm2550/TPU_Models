@@ -43,6 +43,8 @@ def main():
     ap.add_argument('--break-slash-clear', type=float, default=4.0, help='Half clearance around slashes center (px)')
     ap.add_argument('--axis-left-overhang', type=float, default=0.5, help='Extra visible range beyond left end (ms), not labeled')
     ap.add_argument('--axis-right-overhang', type=float, default=0.5, help='Extra visible range before right start (ms), not labeled')
+    ap.add_argument('--break-left-vis', type=float, default=None, help='Explicit left visible endpoint before break (ms), e.g., 2.5')
+    ap.add_argument('--break-right-vis', type=float, default=None, help='Explicit right visible start after break (ms), e.g., 9.5')
     ap.add_argument('--summary-text', type=str, default=None, help='Custom summary text shown below the axis; if omitted, a default is generated')
     ap.add_argument('--copies', type=int, default=2, help='How many stacked copies of the schematic to draw')
     ap.add_argument('--copy-gap', type=float, default=36.0, help='Vertical gap between copies (px)')
@@ -132,6 +134,13 @@ def main():
     comp_s, comp_e = ws_e, ws_e + axis_durs['compute']
     d2h_s, d2h_e = comp_e, comp_e + axis_durs['d2h']
     total_actual = d2h_e
+    # Extend axis to cover the longest copy so trailing segments (e.g., bottom D2H) are visible
+    copy_totals = []
+    for i in range(copies):
+        di = compute_durations(copy_modes[i], i)
+        copy_totals.append(di['h2d'] + di['wstream'] + di['compute'] + di['d2h'])
+    if copy_totals:
+        total_actual = max(total_actual, max(copy_totals))
 
     # Broken-axis configuration
     left_end_val = max(0.0, args.axis_left_end)
@@ -142,8 +151,13 @@ def main():
     # Visual overhangs (extend visible line a bit beyond tick ranges without labeling)
     left_overhang = max(0.0, args.axis_left_overhang)
     right_overhang = max(0.0, args.axis_right_overhang)
-    left_vis_end = min(total_actual, left_end_val + left_overhang)
-    right_vis_start = max(0.0, right_start_val - right_overhang)
+    # Allow explicit visible endpoints to position the break (e.g., 2.5 and 9.5)
+    if args.break_left_vis is not None and args.break_right_vis is not None:
+        left_vis_end = float(args.break_left_vis)
+        right_vis_start = float(args.break_right_vis)
+    else:
+        left_vis_end = min(total_actual, left_end_val + left_overhang)
+        right_vis_start = max(0.0, right_start_val - right_overhang)
     if right_vis_start <= left_vis_end + 1e-6:
         # Ensure a non-zero gap in time domain
         mid = (left_vis_end + right_vis_start) / 2.0
@@ -359,8 +373,17 @@ def main():
             stub_len = max(0.0, float(args.break_stub_len))
             slash_clear = max(0.0, float(args.break_slash_clear))
             gap_width = max(0.0, right_start_x - left_end_x)
-            left_axis_end_draw = min(left_end_x + stub_len, break_center - slash_clear)
-            right_axis_start_draw = max(right_start_x - stub_len, break_center + slash_clear)
+            # If explicit break endpoints are given, enforce symmetric spacing around the break
+            if args.break_left_vis is not None and args.break_right_vis is not None:
+                # Ensure slash_clear does not exceed half the gap
+                max_clear = max(0.0, (right_start_x - left_end_x) / 2.0 - 2.0)
+                if slash_clear > max_clear:
+                    slash_clear = max_clear
+                left_axis_end_draw = break_center - slash_clear
+                right_axis_start_draw = break_center + slash_clear
+            else:
+                left_axis_end_draw = min(left_end_x + stub_len, break_center - slash_clear)
+                right_axis_start_draw = max(right_start_x - stub_len, break_center + slash_clear)
             if right_axis_start_draw - left_axis_end_draw < 6.0:
                 left_axis_end_draw = left_end_x
                 right_axis_start_draw = right_start_x
