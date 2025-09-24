@@ -33,10 +33,10 @@ def _fenv(name: str, default: float) -> float:
     except Exception:
         return float(default)
 
-# Bandwidth source toggle:
-# If True, ignore environment variables and always use the hardcoded defaults below.
-# If False (default), read from environment with the defaults as fallbacks.
-USE_CODE_DEFAULTS = True
+# Bandwidth/host params source toggle:
+# If environment USE_CODE_DEFAULTS is set to '0'/'false', read from env with defaults as fallbacks.
+# Otherwise, use hardcoded defaults.
+USE_CODE_DEFAULTS = os.environ.get('USE_CODE_DEFAULTS', '1').lower() not in ('0', 'false', 'no')
 # Hardcoded defaults (MiB/s)
 DEFAULT_B_IN = 325
 DEFAULT_B_OUT = 87.0
@@ -59,13 +59,25 @@ else:
 
 EPS_MS = 0.0   # small overhead per segment (ignored by default)
 
+# Extra bytes added to Cin calculation per group (bytes)
+try:
+    EXTRA_CIN_BYTES = int(os.environ.get('EXTRA_CIN_BYTES', '100000'))
+except Exception:
+    EXTRA_CIN_BYTES = 100000
+
 # Host-side handling model (function of in_span per segment):
 # Option A (default): per-model intercept Th(model) and global slope kappa
 #   Delta_i = Th(model) + kappa * U_in_i
 # Option B: global intercept HOST_C_MS and global slope kappa
 #   Delta_i = HOST_C_MS + kappa * U_in_i
-KAPPA_MS_PER_MS = 0.2992134815732149
-HOST_C_MS = 0.5527747236073199
+try:
+    KAPPA_MS_PER_MS = float(os.environ.get('KAPPA_MS_PER_MS', '0.2992134815732149'))
+except Exception:
+    KAPPA_MS_PER_MS = 0.2992134815732149
+try:
+    HOST_C_MS = float(os.environ.get('HOST_C_MS', '0.5527747236073199'))
+except Exception:
+    HOST_C_MS = 0.5527747236073199
 USE_PER_MODEL_THOST = False
 
 # Host delta span source policy:
@@ -583,9 +595,10 @@ def compute_chain_times():
                 Ce_ms = sum(P[model].get(seg, 0.0) for seg in segs)
 
                 # Data transfer times (ms)
-                Cin_ms = (d_in / (B_IN * 1024 * 1024.0)) * 1000.0 if d_in else 0.0
+                d_in_eff = d_in + EXTRA_CIN_BYTES  # add 100k to theoretical input for Cin
+                Cin_ms = (d_in_eff / (B_IN * 1024 * 1024.0)) * 1000.0 if d_in_eff else 0.0
                 # Variant using B_IN2 for H2D only
-                Cin_ms_in2 = (d_in / (B_IN2 * 1024 * 1024.0)) * 1000.0 if d_in else 0.0
+                Cin_ms_in2 = (d_in_eff / (B_IN2 * 1024 * 1024.0)) * 1000.0 if d_in_eff else 0.0
                 Cout_ms = (d_out / (B_OUT * 1024 * 1024.0)) * 1000.0 if d_out else 0.0
                 Cout_ms_in2 = (d_out / (B_OUT2 * 1024 * 1024.0)) * 1000.0 if d_out else 0.0
 

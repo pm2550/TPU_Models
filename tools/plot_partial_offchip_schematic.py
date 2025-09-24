@@ -34,8 +34,8 @@ def main():
     ap.add_argument('--h2d-compress', type=float, default=0.30, help='Visual compression factor for H2D (0-1]')
     ap.add_argument('--other-compress', type=float, default=1.0, help='Visual compression for the other segments (0-1]')
     # Axis break/ticks controls
-    ap.add_argument('--axis-left-end', type=float, default=2.0, help='Right-most tick on left segment before break (ms)')
-    ap.add_argument('--axis-right-start', type=float, default=10.0, help='Left-most tick on right segment after break (ms)')
+    ap.add_argument('--axis-left-end', type=float, default=1.5, help='Right-most tick on left segment before break (ms)')
+    ap.add_argument('--axis-right-start', type=float, default=10.5, help='Left-most tick on right segment after break (ms)')
     ap.add_argument('--tick-left-step', type=float, default=1.0, help='Tick step on the left segment (ms)')
     ap.add_argument('--tick-right-step', type=float, default=1.0, help='Tick step on the right segment (ms)')
     ap.add_argument('--break-gap', type=float, default=28.0, help='Pixel width of the axis break gap')
@@ -43,25 +43,45 @@ def main():
     ap.add_argument('--break-slash-clear', type=float, default=4.0, help='Half clearance around slashes center (px)')
     ap.add_argument('--axis-left-overhang', type=float, default=0.5, help='Extra visible range beyond left end (ms), not labeled')
     ap.add_argument('--axis-right-overhang', type=float, default=0.5, help='Extra visible range before right start (ms), not labeled')
-    ap.add_argument('--break-left-vis', type=float, default=None, help='Explicit left visible endpoint before break (ms), e.g., 2.5')
-    ap.add_argument('--break-right-vis', type=float, default=None, help='Explicit right visible start after break (ms), e.g., 9.5')
+    ap.add_argument('--break-left-vis', type=float, default=1.5, help='Explicit left visible endpoint before break (ms), e.g., 2.5')
+    ap.add_argument('--break-right-vis', type=float, default=10.5, help='Explicit right visible start after break (ms), e.g., 9.5')
     ap.add_argument('--summary-text', type=str, default=None, help='Custom summary text shown below the axis; if omitted, a default is generated')
     ap.add_argument('--copies', type=int, default=2, help='How many stacked copies of the schematic to draw')
     ap.add_argument('--copy-gap', type=float, default=36.0, help='Vertical gap between copies (px)')
     ap.add_argument('--use-measured', action='store_true', help='Use measured durations to draw geometry (applies to all copies unless --copy-modes is set)')
     ap.add_argument('--swow-ms', type=float, default=None, help='Streaming without off-chip weight duration (ms); defaults to max(H2D - wstream, 0)')
-    ap.add_argument('--copy-modes', type=str, default=None, help='Comma-separated per-copy modes: original or measured, e.g., "original,measured"')
+    ap.add_argument('--copy-modes', type=str, default='original,measured', help='Comma-separated per-copy modes: original or measured, e.g., "original,measured"')
     ap.add_argument('--axis-mode', type=str, default='auto', choices=['auto','original','measured'], help='Which mode to use for axis timeline; auto uses the first copy mode')
     ap.add_argument('--font-delta', type=float, default=0.0, help='Increase all font sizes by this many px (e.g., 2.0 to go up one size)')
-    ap.add_argument('--legend-gap-below', type=float, default=28.0, help='Extra vertical gap between the legend and the lanes (px)')
-    ap.add_argument('--legend-gap-between', type=float, default=16.0, help='Horizontal gap between legend items (px)')
+    ap.add_argument('--legend-gap-below', type=float, default=60.0, help='Extra vertical gap between the legend and the lanes (px)')
+    ap.add_argument('--legend-gap-between', type=float, default=28.0, help='Horizontal gap between legend items (px)')
+    ap.add_argument('--legend-text-width-scale', type=float, default=1.12, help='Multiplier to text width estimate to avoid overlap (e.g., 1.12)')
+    ap.add_argument('--legend-label-tail-gap', type=float, default=8.0, help='Extra pixels after each label to separate legend cards')
     ap.add_argument('--legend-row-gap', type=float, default=8.0, help='Vertical gap between legend rows (px)')
+    ap.add_argument('--legend-scale', type=float, default=1.0, help='Scale factor for legend text/swatch height (e.g., 1.2)')
+    ap.add_argument('--legend-match-lane', action='store_true', help='Make legend swatch height equal to lane height')
+    ap.add_argument('--legend-swatch-width', type=float, default=28.0, help='Legend swatch width in px (kept moderate)')
     # Bottom-copy overrides (apply to copy index 1 if provided)
     ap.add_argument('--bottom-swow-ms', type=float, default=None, help='Bottom copy: streaming without off-chip weight duration (ms)')
     ap.add_argument('--bottom-compute', type=float, default=None, help='Bottom copy: compute duration (ms)')
     ap.add_argument('--bottom-d2h', type=float, default=None, help='Bottom copy: D2H duration (ms)')
     ap.add_argument('--bottom-wstream', type=float, default=None, help='Bottom copy: off-chip weight streaming duration (ms)')
     ap.add_argument('--bottom-h2d', type=float, default=None, help='Bottom copy: H2D duration (ms) (used only if mode=original for bottom)')
+    # Optional per-copy titles rendered at the far left of each copy (left of USB/TPU labels)
+    ap.add_argument('--title-top', type=str, default='Partial off-chip', help='Title for the top copy (e.g., "Partial off-chip")')
+    ap.add_argument('--title-bottom', type=str, default='Fully on-chip', help='Title for the bottom copy (e.g., "Fully on-chip")')
+    ap.add_argument('--block-label-size', type=float, default=16.0, help='Font size for numeric labels on blocks (px)')
+    ap.add_argument('--lane-label-size', type=float, default=None, help='Font size for lane labels USB/TPU (px); default matches legend text size')
+    ap.add_argument('--title-size', type=float, default=None, help='Font size for per-copy titles (px); default matches legend text size')
+    ap.add_argument('--tick-font-size', type=float, default=None, help='Font size for axis tick labels (px); default matches legend text size')
+    ap.add_argument('--label-margin', type=float, default=6.0, help='Horizontal gap between lane labels and the bar start (px)')
+    ap.add_argument('--pad-left', type=float, default=None, help='Override left padding (px); if not set, auto-expands when titles are present')
+    ap.add_argument('--lane-gap', type=float, default=None, help='Vertical gap between USB and TPU lanes (px)')
+    ap.add_argument('--axis-gap', type=float, default=8.0, help='Gap between TPU lane and the axis baseline (px)')
+    ap.add_argument('--title-offset-x', type=float, default=-6.0, help='Horizontal offset for titles relative to the USB/TPU label center (px)')
+    ap.add_argument('--title-margin', type=float, default=6.0, help='Gap between title and bar start (pad_l) in px')
+    ap.add_argument('--title-usb-gap', type=float, default=8.0, help='Min gap between title end and the first letter of USB (px)')
+    ap.add_argument('--lane-label-swap-offset', type=float, default=60.0, help='When swapping, distance (px) to place USB/TPU left of the bars')
     args = ap.parse_args()
 
     pad_l, pad_r, pad_t, pad_b = 90.0, 60.0, 40.0, 60.0
@@ -69,9 +89,30 @@ def main():
     global FONT_DELTA
     FONT_DELTA = float(args.font_delta)
     lane_h = 26.0
-    lane_gap = 34.0
+    lane_gap = (24.0 if args.lane_gap is None else float(args.lane_gap))
     lane_round = 4
     scale = 60.0  # px per ms (before compression)
+    # Default legend swatch height to match lane height unless overridden
+    if not getattr(args, 'legend_match_lane', False):
+        args.legend_match_lane = True
+
+    # Allow manual override or auto-expand left padding when titles are present
+    if args.pad_left is not None:
+        pad_l = float(args.pad_left)
+    else:
+        def est_text_w(s: str, size_px: float) -> float:
+            # Rough monospace-ish estimate used elsewhere in this script
+            return len(s) * 7.8 * ((size_px + FONT_DELTA) / 12.0)
+        max_title_w = 0.0
+        if args.title_top:
+            max_title_w = max(max_title_w, est_text_w(args.title_top, 12.0))
+        if args.title_bottom:
+            max_title_w = max(max_title_w, est_text_w(args.title_bottom, 12.0))
+        if max_title_w > 0.0:
+            # We right-align the title at x = pad_l/2 - 10, so ensure ~10px margin on the left
+            min_pad_for_titles = 2.0 * (max_title_w + 20.0)
+            if pad_l < min_pad_for_titles:
+                pad_l = min_pad_for_titles
 
     # Actual timeline boundaries
     ch = max(0.05, min(1.0, args.h2d_compress))  # kept for CLI compatibility (not used in x mapping now)
@@ -195,9 +236,15 @@ def main():
     col_stream = '#f3dcb4'
 
     # Prepare legend metrics first to ensure the canvas is wide enough to contain it
+    # Legend baseline Y; ensure swatch top is not outside the canvas
     legend_y = 16.0
-    sw_w, sw_h = 28.0, 16.0
-    label_gap = 7.0
+    lg_scale = max(0.5, float(args.legend_scale))
+    sw_w = max(10.0, float(args.legend_swatch_width))
+    sw_h = (lane_h if args.legend_match_lane else 16.0 * lg_scale)
+    # If legend_y - sw_h + 2 < 0, the swatch would be cropped; bump legend_y
+    if legend_y - sw_h + 2 < 0:
+        legend_y = sw_h + 2.0
+    label_gap = 7.0 * (lane_h / 26.0 if args.legend_match_lane else lg_scale)
     gap_between = max(0.0, float(args.legend_gap_between))
     mono_family = 'DejaVu Sans Mono, Menlo, Consolas, monospace'
     items = [
@@ -206,9 +253,16 @@ def main():
         (col_stream, 'Off-chip weight streaming', 'wstreamCross'),
         (col_d2h, 'D2H', 'd2hHatch'),
     ]
-    # Scale label width estimate by font size change (baseline 12px)
-    font_scale = (12.0 + FONT_DELTA) / 12.0
-    widths = [sw_w + label_gap + len(name)*7.8 * font_scale for _c, name, _p in items]
+    # Scale label width estimate by legend text size change (baseline 12px)
+    legend_font_size = 12.0 * (lane_h / 16.0) if args.legend_match_lane else 12.0 * lg_scale
+    font_scale = (legend_font_size + FONT_DELTA) / 12.0
+    tws = max(0.9, float(args.legend_text_width_scale))
+    tail_gap = max(0.0, float(args.legend_label_tail_gap))
+    # Default other text sizes to match legend text size if not explicitly set
+    lane_label_px = float(args.lane_label_size) if args.lane_label_size is not None else float(legend_font_size)
+    title_px = float(args.title_size) if args.title_size is not None else float(legend_font_size)
+    tick_px = float(args.tick_font_size) if args.tick_font_size is not None else float(legend_font_size)
+    widths = [sw_w + label_gap + len(name)*7.8 * font_scale * tws + tail_gap for _c, name, _p in items]
     # Two-per-row layout
     row1_idx = [0,1]
     row2_idx = [2,3] if len(items) > 2 else []
@@ -252,8 +306,9 @@ def main():
         out.append(svg_rect(xc, rect_y, sw_w, sw_h, fill_color, sw=0.8, rx=2, ry=2, opacity=0.95))
         if pattern_id:
             out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pattern_id})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
-        out.append(svg_text(xc + sw_w + label_gap, legend_y, name, anchor='start', size=12, family=mono_family))
-        xc += sw_w + label_gap + len(name)*7.8 + gap_between
+        out.append(svg_text(xc + sw_w + label_gap, legend_y, name, anchor='start', size=legend_font_size, family=mono_family))
+        # Advance by swatch + label + extra gap. Scale label width by current font.
+        xc += sw_w + label_gap + len(name)*7.8 * font_scale * tws + tail_gap + gap_between
     # Row 2
     if row2_idx:
         legend_y2 = legend_y + sw_h + row_gap
@@ -265,8 +320,9 @@ def main():
             out.append(svg_rect(xc, rect_y, sw_w, sw_h, fill_color, sw=0.8, rx=2, ry=2, opacity=0.95))
             if pattern_id:
                 out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pattern_id})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
-            out.append(svg_text(xc + sw_w + label_gap, legend_y2, name, anchor='start', size=12, family=mono_family))
-            xc += sw_w + label_gap + len(name)*7.8 + gap_between
+            out.append(svg_text(xc + sw_w + label_gap, legend_y2, name, anchor='start', size=legend_font_size, family=mono_family))
+            # Advance by swatch + label + extra gap. Scale label width by current font.
+            xc += sw_w + label_gap + len(name)*7.8 * font_scale * tws + tail_gap + gap_between
 
     # Lane labels will be drawn per copy
 
@@ -332,15 +388,31 @@ def main():
         if hatch:
             out.append(svg_rect(x, y, w, lane_h, f'url(#{hatch})', stroke='none', sw=0, rx=lane_round, ry=lane_round, opacity=1.0))
         if label:
-            out.append(svg_text(x + w/2, y + label_offset_y, label, size=11))
+            out.append(svg_text(x + w/2, y + label_offset_y, label, size=float(args.block_label_size)))
 
     def render_one(y_offset: float, idx: int):
         usb_y = usb_y0 + y_offset
         tpu_y = tpu_y0 + y_offset
 
-        # Lane labels
-        out.append(svg_text(pad_l/2, usb_y + lane_h*0.65, 'USB', anchor='middle', size=12, weight='bold'))
-        out.append(svg_text(pad_l/2, tpu_y + lane_h*0.65, 'TPU', anchor='middle', size=12, weight='bold'))
+        # Place USB/TPU adjacent to the bars (near_bars_x), and put the title to their left
+        near_bars_x = pad_l - max(0.0, float(args.label_margin))
+        out.append(svg_text(near_bars_x, usb_y + lane_h*0.65, 'USB', anchor='end', size=lane_label_px, weight='bold'))
+        out.append(svg_text(near_bars_x, tpu_y + lane_h*0.65, 'TPU', anchor='end', size=lane_label_px, weight='bold'))
+
+        # Optional per-copy title: place to the LEFT of the USB/TPU labels area
+        # Right-align so the text grows leftwards from (pad_l/2 - title_margin)
+        # Title sits to the left of USB/TPU labels, and must end before USB starts
+        # Estimate USB label width to enforce the constraint: title_end_x < usb_start_x
+        usb_char_w = 7.8 * ((lane_label_px + FONT_DELTA) / 12.0)
+        usb_w = 3.0 * usb_char_w  # width of 'USB'
+        min_margin = usb_w + max(0.0, float(args.title_usb_gap))
+        effective_margin = max(max(0.0, float(args.title_margin)), min_margin)
+        title_x = near_bars_x - effective_margin
+        title_y = usb_y + lane_h + (lane_gap / 2.0)
+        if idx == 0 and args.title_top:
+            out.append(svg_text(title_x, title_y, args.title_top, anchor='end', size=title_px, weight='bold'))
+        if idx == 1 and args.title_bottom:
+            out.append(svg_text(title_x, title_y, args.title_bottom, anchor='end', size=title_px, weight='bold'))
 
         # Blocks
         mode = copy_modes[idx]
@@ -362,7 +434,7 @@ def main():
         # Axis (only for the first copy to share one axis)
         if idx == 0:
             base_x1 = pad_l
-            y_base = tpu_y + lane_h + 12.0
+            y_base = tpu_y + lane_h + float(args.axis_gap)
             left_end_x = map_time_broken(left_vis_end) or base_x1
             right_start_x = map_time_broken(right_vis_start) or (base_x1 + scale * (left_vis_end - t0) + gap)
             axis_end_line = map_time_broken(total_actual) or right_start_x
@@ -402,7 +474,7 @@ def main():
                 x_pos = map_time_broken(val)
                 if x_pos is not None:
                     out.append(f'<line x1="{x_pos:.2f}" y1="{(y_base-7):.2f}" x2="{x_pos:.2f}" y2="{(y_base+7):.2f}" stroke="#4d4d4d" stroke-width="1.1" />')
-                    out.append(svg_text(x_pos, y_base + 28.0, f"{int(round(val))}", anchor='middle', size=12))
+                    out.append(svg_text(x_pos, y_base + 28.0, f"{int(round(val))}", anchor='middle', size=tick_px))
                 val += lstep
 
             start = math.ceil(right_start_val / rstep) * rstep
@@ -413,7 +485,7 @@ def main():
                 x_pos = map_time_broken(val)
                 if x_pos is not None:
                     out.append(f'<line x1="{x_pos:.2f}" y1="{(y_base-7):.2f}" x2="{x_pos:.2f}" y2="{(y_base+7):.2f}" stroke="#4d4d4d" stroke-width="1.1" />')
-                    out.append(svg_text(x_pos, y_base + 28.0, f"{int(round(val))}", anchor='middle', size=12))
+                    out.append(svg_text(x_pos, y_base + 28.0, f"{int(round(val))}", anchor='middle', size=tick_px))
                 val = round(val + rstep, 6)
 
             # Optional summary only if user provides text

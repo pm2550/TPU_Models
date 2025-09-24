@@ -11,8 +11,11 @@ Update five_models/results/single_pure_invoke_times.csv post/final values based 
     pure_ms_final = base_pure
 
 Bin_speed (MiB/s) is configurable via environment variable BIN_SPEED; default is 325.0.
-Preserves CSV schema and column order; does not alter count/theory fields to avoid clobbering manual edits.
-Updates 'source' to 'gap' or f'gap+adj{Bin_speed}'.
+Adds two helper columns so readers can see the adjustment clearly:
+  - h2d_span_ms: measured OUT span time (usbmon out_span_ms_mean)
+  - h2d_theory_ms: theoretical H2D time = (bytes_out / Bin_speed) * 1000
+Normalizes 'theory_out_mibps_used' to the Bin_speed value, and sets 'source' to
+  'gap' for on-chip or f'gap+adj{Bin_speed}' for off-chip.
 """
 import csv
 import json
@@ -27,7 +30,10 @@ OUT_CSV = BASE / 'five_models/results/single_pure_invoke_times.csv'
 THEORY_SEG = BASE / 'five_models/baselines/theory_io_seg.json'
 
 
-Bin_speed = 330
+try:
+    Bin_speed = float(os.environ.get('BIN_SPEED', '325'))
+except Exception:
+    Bin_speed = 325.0
 
 def load_combined_span():
     """Load combined span stats: returns {model:{seg:{pre:float, post:float, count:int, theory:float}}}."""
@@ -93,6 +99,14 @@ def update_csv(span_map, gap_map):
     with OUT_CSV.open() as f:
         rd = csv.DictReader(f)
         fieldnames = rd.fieldnames or []
+        # Ensure helper columns exist (place after pure_ms_pre)
+        for col in ('h2d_span_ms', 'h2d_theory_ms'):
+            if col not in fieldnames:
+                try:
+                    idx = fieldnames.index('pure_ms_pre') + 1
+                except ValueError:
+                    idx = len(fieldnames)
+                fieldnames = fieldnames[:idx] + [col] + fieldnames[idx:]
         for r in rd:
             m = r.get('model'); seg = r.get('segment')
             r_type = (r.get('type') or '').strip()
@@ -129,10 +143,12 @@ def update_csv(span_map, gap_map):
                         bytes_out = None if bytes_out is None else float(bytes_out)
                     except Exception:
                         bytes_out = None
-                    if pre_to_use is not None and out_span_ms is not None and bytes_out is not None and bytes_out > 0:
+                    theo_ms = None
+                    if bytes_out is not None and bytes_out > 0:
                         bytes_out_mib = bytes_out / (1024.0 * 1024.0)
                         theo_ms = (bytes_out_mib / Bin_speed) * 1000.0
-                        delta = out_span_ms - theo_ms
+                    if pre_to_use is not None and out_span_ms is not None and bytes_out is not None and bytes_out > 0:
+                        delta = out_span_ms - float(theo_ms)
                         if delta < 0:
                             delta = 0.0
                         use_post = float(pre_to_use) + float(delta)
@@ -141,6 +157,11 @@ def update_csv(span_map, gap_map):
                     if use_post is not None:
                         r['pure_ms_post'] = f"{use_post}"
                         r['pure_ms_final'] = f"{use_post}"
+                        # helper columns for clarity
+                        if out_span_ms is not None:
+                            r['h2d_span_ms'] = f"{out_span_ms}"
+                        if theo_ms is not None:
+                            r['h2d_theory_ms'] = f"{theo_ms}"
                         # adjustment flag based on whether adjusted differs from pre
                         try:
                             adj = (use_post is not None and pre_to_use is not None and abs(float(use_post) - float(pre_to_use)) > 1e-9)
@@ -153,6 +174,20 @@ def update_csv(span_map, gap_map):
                         r['pure_ms_post'] = f"{pre_to_use}"
                         r['pure_ms_final'] = f"{pre_to_use}"
                         r['adjustment_applied'] = '0'
+                    # still record helper columns if available
+                    try:
+                        out_span_ms = span.get('out_span_ms')
+                        bytes_out = span.get('bytes_out_mean')
+                        out_span_ms = None if out_span_ms is None else float(out_span_ms)
+                        bytes_out = None if bytes_out is None else float(bytes_out)
+                        if out_span_ms is not None:
+                            r['h2d_span_ms'] = f"{out_span_ms}"
+                        if bytes_out is not None and bytes_out > 0:
+                            bytes_out_mib = bytes_out / (1024.0 * 1024.0)
+                            theo_ms = (bytes_out_mib / Bin_speed) * 1000.0
+                            r['h2d_theory_ms'] = f"{theo_ms}"
+                    except Exception:
+                        pass
                 # Optionally update source to reflect basis; do not change count/theory to avoid clobbering
                 if 'source' in r:
                     # tag includes actual Bin_speed used
@@ -161,6 +196,9 @@ def update_csv(span_map, gap_map):
             else:
                 # No span info; keep existing values as-is
                 pass
+
+            # Normalize theory_out_mibps_used to Bin_speed
+            r['theory_out_mibps_used'] = f"{float(Bin_speed)}"
 
             rows.append(r)
 
