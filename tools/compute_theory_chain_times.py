@@ -198,8 +198,8 @@ def load_offchip_measured_means() -> Dict[str, Dict[str, float]]:
 
 def update_source_data_with_measured_offchip(offchip_map: Dict[str, Dict[str, float]]) -> None:
     """Patch five_models/results/theory_chain_source_data.csv:
-    - Insert column 'offchip_mean_ms' after 'pure_invoke_pre_median'.
-    - Remove 'offchip_index' column if present.
+    - Insert column 'offchip_streaming_mean_ms' AFTER 'pure_invoke_pre_median'.
+    - Remove legacy columns 'offchip_index' and 'offchip_mean_ms' if present.
     - For single-seg rows (group_name=segX), if is_offchip==1, write measured value; else 0.
     - Apply overrides: set is_offchip=0 and weights_stream_MiB=0 for inceptionv3 seg7 and resnet101 seg7.
     """
@@ -209,15 +209,17 @@ def update_source_data_with_measured_offchip(offchip_map: Dict[str, Dict[str, fl
     with SRC_CSV.open() as f:
         rd = csv.DictReader(f)
         fns = list(rd.fieldnames or [])
-        # Remove offchip_index if present
-        fns = [c for c in fns if c != 'offchip_index']
-        # Ensure offchip_mean_ms exists after pure_invoke_pre_median
-        if 'offchip_mean_ms' not in fns:
-            try:
-                idx = fns.index('pure_invoke_pre_median') + 1
-            except ValueError:
-                idx = len(fns)
-            fns = fns[:idx] + ['offchip_mean_ms'] + fns[idx:]
+        # Remove legacy columns
+        fns = [c for c in fns if c not in ('offchip_index', 'offchip_mean_ms')]
+        # Ensure offchip_streaming_mean_ms is BEFORE pure_invoke_pre_median (reposition if already exists)
+        col_name = 'offchip_streaming_mean_ms'
+        # Remove existing occurrence to reposition
+        fns = [c for c in fns if c != col_name]
+        try:
+            idx = fns.index('pure_invoke_pre_median')
+        except ValueError:
+            idx = 0
+        fns = fns[:idx] + [col_name] + fns[idx:]
         for r in rd:
             m = r.get('model'); g = r.get('group_name')
             # Apply overrides for two segments
@@ -233,10 +235,11 @@ def update_source_data_with_measured_offchip(offchip_map: Dict[str, Dict[str, fl
                 except Exception:
                     val = 0.0
             # Insert/overwrite column value
-            r['offchip_mean_ms'] = f"{val}"
-            # Drop removed columns if present
-            if 'offchip_index' in r:
-                r.pop('offchip_index', None)
+            r[col_name] = f"{val}"
+            # Drop removed columns if present in row
+            for legacy in ('offchip_index', 'offchip_mean_ms'):
+                if legacy in r:
+                    r.pop(legacy, None)
             rows.append(r)
     with SRC_CSV.open('w', newline='') as f:
         wr = csv.DictWriter(f, fieldnames=fns)
