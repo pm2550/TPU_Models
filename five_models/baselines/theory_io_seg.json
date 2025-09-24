@@ -150,8 +150,8 @@
         "theory_IN_bytes": 131072,
         "base_input_bytes": 131072,
         "base_output_bytes": 131072,
-        "off_chip_MiB": 0.799,
-        "off_used_MiB": 0.799,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
         "segment_model_bytes": 6160992,
         "segment_model_MiB": 5.87558
       },
@@ -234,8 +234,8 @@
         "theory_IN_bytes": 100352,
         "base_input_bytes": 100352,
         "base_output_bytes": 100352,
-        "off_chip_MiB": 3.01,
-        "off_used_MiB": 3.01,
+        "off_chip_MiB": 0.0,
+        "off_used_MiB": 0.0,
         "segment_model_bytes": 4543072,
         "segment_model_MiB": 4.332611
       },

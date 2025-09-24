@@ -6,8 +6,6 @@ from typing import List, Dict
 
 RESULTS_ROOT = "/home/10210/Desktop/OS/results/models_local_combo_chain"
 OUTPUT_CSV = "/home/10210/Desktop/OS/results/combo_cycle_times.csv"
-OUTPUT_AVG_CSV = "/home/10210/Desktop/OS/results/combo_cycle_times_avg.csv"
-OUTPUT_SEG_AVG_CSV = "/home/10210/Desktop/OS/results/combo_segment_avg_times.csv"
 
 def read_pure_invoke_times(perf_path: str) -> List[float]:
     try:
@@ -40,9 +38,6 @@ def read_spans(invokes_path: str) -> List[Dict[str, float]]:
     except Exception:
         return []
 
-def mean(arr: List[float]) -> float:
-    return (sum(arr) / len(arr)) if arr else 0.0
-
 def sum_cycle_time_ms(seg_to_pure_ms: Dict[str, List[float]]) -> List[float]:
     if not seg_to_pure_ms:
         return []
@@ -58,8 +53,6 @@ def sum_cycle_time_ms(seg_to_pure_ms: Dict[str, List[float]]) -> List[float]:
 
 def main():
     rows = []
-    avg_rows = []  # model, K, cycles_count, avg_cycle_ms
-    seg_avg_rows = []  # model, K, segment_label, cycles, avg_invoke_ms, avg_pure_ms
     if not os.path.isdir(RESULTS_ROOT):
         print(f"not found: {RESULTS_ROOT}")
         return
@@ -84,15 +77,11 @@ def main():
             if not seg_dirs:
                 continue
             seg_to_invoke: Dict[str, List[float]] = {}
-            seg_to_pure: Dict[str, List[float]] = {}
             for sd in seg_dirs:
                 perfp = os.path.join(kdir, sd, 'performance_summary.json')
-                inv_times = read_invoke_times(perfp)
-                pure_times = read_pure_invoke_times(perfp)
-                if inv_times:
-                    seg_to_invoke[sd] = inv_times
-                if pure_times:
-                    seg_to_pure[sd] = pure_times
+                times = read_invoke_times(perfp)
+                if times:
+                    seg_to_invoke[sd] = times
 
             # 若不存在 invoke_times 明细，回退到 invokes.json 的窗口时长
             if not seg_to_invoke:
@@ -118,31 +107,8 @@ def main():
                     totals_ms.append(total_s * 1000.0)
             else:
                 totals_ms = sum_cycle_time_ms(seg_to_invoke)
-            # 追加每段均值（优先使用 performance_summary.json 的 all_times_ms；否则回退到 invokes.json 窗口计算 invoke 均值）
-            for sd in seg_dirs:
-                perfp = os.path.join(kdir, sd, 'performance_summary.json')
-                inv_times = read_invoke_times(perfp)
-                pure_times = read_pure_invoke_times(perfp)
-                if not inv_times:
-                    # fallback to spans for invoke mean
-                    invp = os.path.join(kdir, sd, 'invokes.json')
-                    spans = read_spans(invp)
-                    inv_times = [ (float(s.get('end',0.0))-float(s.get('begin',0.0)))*1000.0 for s in spans if float(s.get('end',0.0))>float(s.get('begin',0.0)) ]
-                seg_avg_rows.append([
-                    model_name,
-                    k,
-                    sd,
-                    len(inv_times) if inv_times else (len(pure_times) if pure_times else 0),
-                    f"{mean(inv_times):.3f}",
-                    f"{mean(pure_times):.3f}" if pure_times else ""
-                ])
-            # 写明细
             for idx, ms in enumerate(totals_ms, start=1):
                 rows.append([model_name, k, idx, f"{ms:.3f}"])
-            # 追加均值（按该 K 的 cycles 均值）
-            if totals_ms:
-                avg_ms = sum(totals_ms) / len(totals_ms)
-                avg_rows.append([model_name, k, len(totals_ms), f"{avg_ms:.3f}"])
 
     # 写 CSV
     os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
@@ -151,18 +117,6 @@ def main():
         w.writerow(["model", "K", "cycle_index", "total_cycle_ms"])
         w.writerows(rows)
     print(f"saved: {OUTPUT_CSV}, rows={len(rows)}")
-    # 写均值 CSV
-    with open(OUTPUT_AVG_CSV, 'w', newline='') as f:
-        w = csv.writer(f)
-        w.writerow(["model", "K", "cycles", "avg_cycle_ms"])
-        w.writerows(avg_rows)
-    print(f"saved: {OUTPUT_AVG_CSV}, rows={len(avg_rows)}")
-    # 写每段均值 CSV
-    with open(OUTPUT_SEG_AVG_CSV, 'w', newline='') as f:
-        w = csv.writer(f)
-        w.writerow(["model", "K", "segment", "cycles", "avg_invoke_ms", "avg_pure_ms"])
-        w.writerows(seg_avg_rows)
-    print(f"saved: {OUTPUT_SEG_AVG_CSV}, rows={len(seg_avg_rows)}")
 
 if __name__ == '__main__':
     main()

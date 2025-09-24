@@ -3,6 +3,7 @@ import csv
 import json
 import os
 from pathlib import Path
+from typing import Dict, Any
 
 BASE = Path('/home/10210/Desktop/OS')
 # Use combo-specific theory tensors and weight splits (on-chip/off-chip) per K and group
@@ -10,6 +11,9 @@ THEORY_COMBOS = BASE/'five_models/baselines/theory_io_combos.json'
 THEORY_SEG = BASE/'five_models/baselines/theory_io_seg.json'
 PURE_CSV = BASE/'five_models/results/single_pure_invoke_times.csv'
 OUT_CSV = BASE/'five_models/results/theory_chain_times.csv'
+SRC_CSV = BASE/'five_models/results/theory_chain_source_data.csv'
+OFFCHIP_MEAS_CSV = BASE/'results/offchip_usbmon_avg_times.csv'
+SINGLE_RESULTS_DIR = BASE/'results/models_local_batch_usbmon/single'
 PURE_COMBINED = BASE/'results/models_local_batch_usbmon/single/combined_pure_gap_seg1-8_summary.csv'
 SPAN_SUMMARY = BASE/'results/models_local_batch_usbmon/single/combined_summary_span.json'
 
@@ -116,6 +120,188 @@ def read_segments():
             }
         S[m] = norm
     return S
+
+
+def _offchip_overrides() -> Dict[str, set]:
+    """Segments that should be treated as having zero off-chip.
+
+    Per user correction: inceptionv3 seg7, resnet101 seg7.
+    Returns mapping {model: {segments...}}.
+    """
+    return {
+        'inceptionv3_8seg_uniform_local': {'seg7'},
+        'resnet101_8seg_uniform_local': {'seg7'},
+    }
+
+
+def apply_offchip_overrides_to_defs(combos: dict, segments: dict) -> None:
+    """Mutate combos and segments to zero off_used_MiB for overridden segments/groups."""
+    overrides = _offchip_overrides()
+    # Per-segment (K=8) overrides
+    for model, segs in overrides.items():
+        seg_def = (segments.get(model) or {}).get('segments') or segments.get(model)
+        if isinstance(seg_def, dict):
+            for seg in segs:
+                if seg in seg_def:
+                    try:
+                        seg_def[seg]['off_used_MiB'] = 0.0
+                        seg_def[seg]['off_chip_MiB'] = 0.0
+                    except Exception:
+                        pass
+    # Combo (K!=8) groups that include seg7 or seg7to8
+    for model, km in (combos or {}).items():
+        if model not in overrides:
+            continue
+        segs = overrides[model]
+        for kkey, gmap in (km or {}).items():
+            if not isinstance(gmap, dict):
+                continue
+            for gname, gd in gmap.items():
+                # If this group is exactly seg7 or ends at 8 starting from 7, zero it
+                try:
+                    if gname == 'seg7' or gname == 'seg7to8':
+                        gd['off_used_MiB'] = 0.0
+                        if 'off_chip_MiB' in gd:
+                            gd['off_chip_MiB'] = 0.0
+                except Exception:
+                    pass
+
+
+def load_offchip_measured_means() -> Dict[str, Dict[str, float]]:
+    """Read measured off-chip averages written by calc_offchip_usbmon_times.py.
+    Returns {model: {segment: avg_ms}} using the single-chunk metric.
+    Applies overrides (set to 0.0) for specified segments.
+    """
+    M: Dict[str, Dict[str, float]] = {}
+    if not OFFCHIP_MEAS_CSV.exists():
+        return M
+    try:
+        with OFFCHIP_MEAS_CSV.open() as f:
+            rd = csv.DictReader(f)
+            for r in rd:
+                m = r.get('model'); seg = r.get('segment')
+                if not m or not seg:
+                    continue
+                try:
+                    v = float(r.get('avg_offchip_ms_single') or r.get('avg_offchip_ms') or 0.0)
+                except Exception:
+                    v = 0.0
+                M.setdefault(m, {})[seg] = v
+    except Exception:
+        return M
+    # Apply overrides → force to 0.0
+    for m, segs in _offchip_overrides().items():
+        for s in segs:
+            M.setdefault(m, {})[s] = 0.0
+    return M
+
+
+def update_source_data_with_measured_offchip(offchip_map: Dict[str, Dict[str, float]]) -> None:
+    """Patch five_models/results/theory_chain_source_data.csv:
+    - Insert column 'offchip_mean_ms' after 'pure_invoke_pre_median'.
+    - Remove 'offchip_index' column if present.
+    - For single-seg rows (group_name=segX), if is_offchip==1, write measured value; else 0.
+    - Apply overrides: set is_offchip=0 and weights_stream_MiB=0 for inceptionv3 seg7 and resnet101 seg7.
+    """
+    if not SRC_CSV.exists():
+        return
+    rows = []
+    with SRC_CSV.open() as f:
+        rd = csv.DictReader(f)
+        fns = list(rd.fieldnames or [])
+        # Remove offchip_index if present
+        fns = [c for c in fns if c != 'offchip_index']
+        # Ensure offchip_mean_ms exists after pure_invoke_pre_median
+        if 'offchip_mean_ms' not in fns:
+            try:
+                idx = fns.index('pure_invoke_pre_median') + 1
+            except ValueError:
+                idx = len(fns)
+            fns = fns[:idx] + ['offchip_mean_ms'] + fns[idx:]
+        for r in rd:
+            m = r.get('model'); g = r.get('group_name')
+            # Apply overrides for two segments
+            if m in _offchip_overrides() and g in _offchip_overrides()[m]:
+                r['is_offchip'] = '0'
+                if 'weights_stream_MiB' in r:
+                    r['weights_stream_MiB'] = '0.0'
+            # Compute measured mean to write
+            val = 0.0
+            if g and g.startswith('seg') and (r.get('is_offchip') in ('1', 'True', 'true', 'yes')):
+                try:
+                    val = float(((offchip_map.get(m) or {}).get(g)) or 0.0)
+                except Exception:
+                    val = 0.0
+            # Insert/overwrite column value
+            r['offchip_mean_ms'] = f"{val}"
+            # Drop removed columns if present
+            if 'offchip_index' in r:
+                r.pop('offchip_index', None)
+            rows.append(r)
+    with SRC_CSV.open('w', newline='') as f:
+        wr = csv.DictWriter(f, fieldnames=fns)
+        wr.writeheader(); wr.writerows(rows)
+
+
+def _json_load(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def _json_dump(path: Path, obj: Any) -> None:
+    try:
+        path.write_text(json.dumps(obj, indent=2, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def update_single_summaries_zero_overrides() -> None:
+    """Adjust single-mode summaries to reflect zero off-chip for specified segments.
+    - Remove those segments from offchip_summary.json
+    - Ensure they appear in onchip_summary.json (copy metrics from combined_summary.json)
+    - In combined_summary_span.json, set pure_span_offchip_adjusted_ms_mean to pure_span_ms_mean
+    """
+    overrides = _offchip_overrides()
+    # combined_summary.json provides base metrics per segment
+    comb = _json_load(SINGLE_RESULTS_DIR/'combined_summary.json') or {}
+    offj = _json_load(SINGLE_RESULTS_DIR/'offchip_summary.json') or {}
+    onj = _json_load(SINGLE_RESULTS_DIR/'onchip_summary.json') or {}
+    spanj = _json_load(SINGLE_RESULTS_DIR/'combined_summary_span.json') or {}
+    # Remove from offchip_summary
+    for m, segs in overrides.items():
+        if isinstance(offj, dict) and m in offj:
+            for s in list(segs):
+                if s in (offj.get(m) or {}):
+                    try:
+                        del offj[m][s]
+                    except Exception:
+                        pass
+    # Add to onchip_summary from combined_summary
+    for m, segs in overrides.items():
+        src = (comb.get(m) or {}) if isinstance(comb, dict) else {}
+        if not src:
+            continue
+        dst = onj.setdefault(m, {}) if isinstance(onj, dict) else {}
+        for s in segs:
+            if s in src:
+                dst[s] = src[s]
+    # Span summary correction
+    for m, segs in overrides.items():
+        md = (spanj.get(m) or {}) if isinstance(spanj, dict) else {}
+        for s in segs:
+            sd = md.get(s) or {}
+            try:
+                pm = float(sd.get('pure_span_ms_mean') or 0.0)
+            except Exception:
+                pm = 0.0
+            if sd:
+                sd['pure_span_offchip_adjusted_ms_mean'] = pm
+    # Write back
+    _json_dump(SINGLE_RESULTS_DIR/'offchip_summary.json', offj)
+    _json_dump(SINGLE_RESULTS_DIR/'onchip_summary.json', onj)
+    _json_dump(SINGLE_RESULTS_DIR/'combined_summary_span.json', spanj)
 
 def read_in_span_ms():
     """Read per-segment input envelope span (ms). Returns {model:{segX: in_span_ms_mean}}"""
@@ -325,6 +511,11 @@ def compute_chain_times():
             pass
     combos = read_combos()
     segments = read_segments()
+    # Apply off-chip overrides (set selected segs to 0 off-chip)
+    try:
+        apply_offchip_overrides_to_defs(combos, segments)
+    except Exception:
+        pass
     # After (optional) refresh, optionally compute pure_ms_post/final via off-chip adjustment
     if os.environ.get('APPLY_OFFCHIP') == '1':
         try:
@@ -516,6 +707,17 @@ def compute_chain_times():
         for r in out_rows:
             w.writerow(r)
     print('Wrote', OUT_CSV)
+    # Update source-data CSV with measured off-chip means and drop offchip_index
+    try:
+        off_map = load_offchip_measured_means()
+        update_source_data_with_measured_offchip(off_map)
+    except Exception:
+        pass
+    # Update single summaries to reflect overrides
+    try:
+        update_single_summaries_zero_overrides()
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     compute_chain_times()
