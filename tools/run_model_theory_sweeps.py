@@ -125,6 +125,15 @@ def mib_to_ms(mib: float, mibps: float) -> float:
 def bytes_to_ms(nbytes: float, mibps: float) -> float:
     return (nbytes / (1024.0 * 1024.0) / (mibps or 1.0)) * 1000.0
 
+# Extra H2D bytes to include in Cin time (to align with compute_theory_chain_times)
+try:
+    EXTRA_CIN_BYTES = int(os.environ.get('EXTRA_CIN_BYTES', '100000'))
+except Exception:
+    EXTRA_CIN_BYTES = 100000
+
+def cin_ms_with_extra(cin_bytes: float, b_in_mibps: float) -> float:
+    return bytes_to_ms((cin_bytes or 0.0) + float(EXTRA_CIN_BYTES), b_in_mibps)
+
 
 def choose_factor_99(model: str, enriched_rows: list[dict], th_ms: float = 1.2,
                      coverage_quantile: float = 0.99) -> tuple[float, float, int, int, int]:
@@ -167,34 +176,40 @@ def choose_factor_99(model: str, enriched_rows: list[dict], th_ms: float = 1.2,
     if not meas:
         return 1.0, 1.0, 0, 0, 0
 
-    # Robust outlier filtering on total_ms
-    vals = [ms for _, ms in meas]
-    med = median(vals)
-    abs_dev = [abs(x - med) for x in vals]
-    mad = median(abs_dev)
-    keep_idx = set(range(len(vals)))
-    if mad > 0:
-        # Robust z-score threshold
-        for i, x in enumerate(vals):
-            z = 0.6745 * (x - med) / mad
-            if abs(z) > 3.5:
-                if i in keep_idx:
-                    keep_idx.remove(i)
-    else:
-        # Fallback to IQR
-        s = sorted(vals)
-        q1 = s[int(0.25 * (len(s)-1))]
-        q3 = s[int(0.75 * (len(s)-1))]
-        iqr = q3 - q1
-        if iqr > 0:
-            lo = q1 - 3.0 * iqr
-            hi = q3 + 3.0 * iqr
-            for i, x in enumerate(vals):
-                if x < lo or x > hi:
-                    if i in keep_idx:
-                        keep_idx.remove(i)
-    meas_filt = [meas[i] for i in sorted(list(keep_idx))]
-    dropped = total_cycles - len(meas_filt)
+    # Per-K outlier filtering (align with plot_combo_speeds.py):
+    # MAD fence: |x - median| <= 5.0 * (1.4826 * MAD); fallback IQR 1.5 fence
+    meas_filt: list[tuple[int, float]] = []
+    dropped = 0
+    byK_ms: dict[int, list[float]] = {}
+    for K, ms in meas:
+        byK_ms.setdefault(K, []).append(ms)
+    for K, arr in byK_ms.items():
+        if not arr:
+            continue
+        vals = list(arr)
+        # MAD path
+        med = median(vals)
+        mad = median([abs(x - med) for x in vals])
+        kept: list[float] = []
+        if mad > 1e-9:
+            sigma = 1.4826 * mad
+            lo = med - 5.0 * sigma
+            hi = med + 5.0 * sigma
+            kept = [x for x in vals if (x >= lo and x <= hi)]
+        else:
+            s = sorted(vals)
+            q1 = s[int(0.25 * (len(s)-1))]
+            q3 = s[int(0.75 * (len(s)-1))]
+            iqr = q3 - q1
+            if iqr > 0:
+                lo = q1 - 1.5 * iqr
+                hi = q3 + 1.5 * iqr
+                kept = [x for x in vals if (x >= lo and x <= hi)]
+            else:
+                kept = vals
+        dropped += len(vals) - len(kept)
+        for x in kept:
+            meas_filt.append((K, x))
     if not meas_filt:
         return 1.0, 1.0, 0, total_cycles, dropped
 
@@ -213,46 +228,42 @@ def choose_factor_99(model: str, enriched_rows: list[dict], th_ms: float = 1.2,
             n += 1
         return const + sum_rem + n * th_ms
 
-    # Compute required f per measured cycle (global across K)
+    # Compute largest feasible f per measured cycle (global across K)
+    # For a given cycle, coverage holds if f <= F_i (since total decreases with f).
+    # We'll compute F_i = sup { f in [0,1] | total_for_k(f) >= target }.
     f_reqs: list[float] = []
     for K, target in meas_filt:
         rowsK = byK.get(K)
         if not rowsK:
             continue
-        # If no off_ms, f has no effect
-        if sum(float(e['t_remaining_ms']) for e in rowsK) <= 1e-12:
-            f_reqs.append(0.0 if total_for_k(0.0, rowsK) >= target else 1.0)
-            continue
-        if total_for_k(0.0, rowsK) >= target:
+        # If even f=0 cannot cover, mark as 0 (uncoverable within [0,1])
+        if total_for_k(0.0, rowsK) < target:
             f_reqs.append(0.0)
             continue
-        # Binary search f in [0,1]
-        f_lo, f_hi = 0.0, 1.0
-        if total_for_k(f_hi, rowsK) < target:
+        # If f=1 still covers, then largest feasible f is 1.0
+        if total_for_k(1.0, rowsK) >= target:
             f_reqs.append(1.0)
             continue
-        for _ in range(40):
-            f_mid = 0.5 * (f_lo + f_hi)
-            if total_for_k(f_mid, rowsK) >= target:
-                f_hi = f_mid
+        # Binary search for largest feasible f in [0,1]
+        lo, hi = 0.0, 1.0
+        for _ in range(50):
+            mid = (lo + hi) / 2.0
+            if total_for_k(mid, rowsK) >= target:
+                # feasible, try larger f
+                lo = mid
             else:
-                f_lo = f_mid
-        f_reqs.append(max(0.0, f_hi))
+                hi = mid
+        f_reqs.append(max(0.0, min(1.0, lo)))
 
     if not f_reqs:
         return 1.0, 1.0, len(meas_filt), total_cycles, dropped
-    # coverage_quantile percentile over all cycles' f requirements
+    # Choose f so that at least coverage_quantile of cycles have F_i >= f
+    # In ascending order, this is the (1 - coverage_quantile) quantile
     q = sorted(f_reqs)
-    idx = min(len(q) - 1, int(math.ceil(coverage_quantile * len(q)) - 1))
+    idx = int(max(0, math.floor((1.0 - coverage_quantile) * len(q))))
     f_model = min(1.0, max(0.0, q[idx]))
-    # Compute achieved coverage with this f
-    covered = 0
-    for K, target in meas_filt:
-        rowsK = byK.get(K)
-        if not rowsK:
-            continue
-        if total_for_k(f_model, rowsK) >= target:
-            covered += 1
+    # Compute achieved coverage with this f (fraction with F_i >= f)
+    covered = sum(1 for K, target in meas_filt if total_for_k(f_model, byK.get(K) or []) >= target)
     coverage_rate = covered / float(len(meas_filt)) if meas_filt else 1.0
     return f_model, coverage_rate, len(meas_filt), total_cycles, dropped
 
@@ -270,7 +281,7 @@ def build_per_model_csv(model: str, b_in: float, b_out_hi: float, b_out_lo: floa
         K = int(r.get('K') or 0)
         g = r.get('group_name')
         d_in, d_out = load_group_io_bytes(model, K, g)
-        cin_ms = bytes_to_ms(d_in, b_in)
+        cin_ms = cin_ms_with_extra(d_in, b_in)
         cout_ms_hi = bytes_to_ms(d_out, b_out_hi)
         cout_ms_lo = bytes_to_ms(d_out, b_out_lo)
         ce = float(r.get('Ce_ms') or 0.0)

@@ -9,10 +9,10 @@ color and hatch (Compute defaults to pure color for contrast). Numeric values
 are annotated next to each stacked block.
 
 Defaults are from user-provided numbers:
-  seg1: invoke=6.998, in=0.258, out=3.740, pure_gap=2.537
-  seg2: invoke=4.504, in=0.068, out=3.776, pure_gap=0.366
-  seg3: invoke=4.383, in=0.007, out=3.831, pure_gap=0.318
-  seg4: invoke=4.885, in=0.000, out=4.619, pure_gap=0.066
+  seg1: invoke=6.998, in=0.318, out=3.740, pure_gap=2.537
+  seg2: invoke=4.504, in=0.128, out=3.776, pure_gap=0.366
+  seg3: invoke=4.383, in=0.067, out=3.831, pure_gap=0.318
+  seg4: invoke=4.885, in=0.060, out=4.619, pure_gap=0.066
 
 Usage:
   python tools/plot_seg_bars_svg.py [--outfile results/plots/seg_bars.svg]
@@ -45,19 +45,40 @@ def svg_text(x, y, s, size=12, anchor='middle', weight='normal', family='DejaVu 
 def main():
     ap = argparse.ArgumentParser(description='Draw stacked bars for seg1..4 (SVG).')
     ap.add_argument('--outfile', type=str, default='results/plots/seg_bars.svg')
-    ap.add_argument('--height', type=float, default=360.0, help='Figure height in px (default: 360)')
+    ap.add_argument('--height', type=float, default=440.0, help='Figure height in px')
     ap.add_argument('--include-full', action='store_true', help='Also draw the full aggregate bar to the right of seg4')
+    # Font sizes (px)
+    ap.add_argument('--tick-font-size', type=float, default=16.0, help='Y-axis tick label size')
+    ap.add_argument('--seg-label-font-size', type=float, default=16.0, help='Per-segment label text size (name/value)')
+    ap.add_argument('--x-label-font-size', type=float, default=16.0, help='X-axis (seg names) label size')
+    ap.add_argument('--legend-font-size', type=float, default=19.5, help='Legend text size')
+    ap.add_argument('--legend-swatch-height', type=float, default=26.0, help='Legend swatch height (px)')
+    ap.add_argument('--legend-swatch-width', type=float, default=28.0, help='Legend swatch width (px)')
+    ap.add_argument('--y-unit', type=str, default='ms', help='Y-axis unit text (e.g., ms)')
+    ap.add_argument('--y-unit-dy', type=float, default=8.0, help='Additional downward offset for Y-axis unit label (px)')
+    # Data overrides
+    ap.add_argument('--d2h-override', type=float, default=None, help='If set, use this D2H value for all segs (ms)')
+    # Spacing controls
+    ap.add_argument('--label-min-sep', type=float, default=32.0, help='Minimum vertical separation between labels in one bar (px)')
+    ap.add_argument('--legend-gap-between', type=float, default=24.0, help='Horizontal gap between legend cards (px)')
+    ap.add_argument('--legend-y', type=float, default=26.0, help='Legend baseline Y position (px); auto-clamped to avoid clipping')
+    ap.add_argument('--legend-top-pad', type=float, default=2.0, help='Minimum top padding between legend swatch and SVG top (px)')
+    ap.add_argument('--bar-gap', type=float, default=84.0, help='Horizontal gap between bars (px)')
     args = ap.parse_args()
 
     # Data
     segs = [
-        dict(name='seg1', invoke=6.998, d2h=0.258, h2d=3.740, comp=2.537),
-        dict(name='seg2', invoke=4.504, d2h=0.068, h2d=3.776, comp=0.366),
-        dict(name='seg3', invoke=4.383, d2h=0.007, h2d=3.831, comp=0.318),
-        dict(name='seg4', invoke=4.885, d2h=0.000, h2d=4.619, comp=0.066),
+        dict(name='seg1', invoke=6.998, d2h=0.318, h2d=3.740, comp=2.522),
+        dict(name='seg2', invoke=4.504, d2h=0.128, h2d=3.776, comp=0.351),
+        dict(name='seg3', invoke=4.383, d2h=0.067, h2d=3.831, comp=0.303),
+        dict(name='seg4', invoke=4.885, d2h=0.060, h2d=4.619, comp=0.051),
     ]
     if args.include_full:
-        segs.append(dict(name='full', invoke=17.590, d2h=0.000, h2d=14.161, comp=3.120))
+        segs.append(dict(name='full', invoke=17.590, d2h=0.060, h2d=14.161, comp=3.120))
+    # Optional override: set all D2H values to a constant
+    if args.d2h_override is not None:
+        for s in segs:
+            s['d2h'] = float(args.d2h_override)
     # Derive host(pre/post) time = invoke - (h2d + comp + d2h)
     for s in segs:
         s['host'] = max(0.0, s['invoke'] - (s['h2d'] + s['comp'] + s['d2h']))
@@ -70,12 +91,12 @@ def main():
 
     # Layout
     # Increase top padding to move the bar chart downward on the canvas
-    pad_l, pad_r, pad_t, pad_b = 80.0, 56.0, 56.0, 44.0
-    axis_gap = 26.0  # gap between Y-axis and first bar (further away)
-    bar_w = 44.0
-    gap = 56.0      # even larger spacing between bars
+    pad_l, pad_r, pad_t, pad_b = 90.0, 64.0, 60.0, 48.0
+    axis_gap = 28.0  # gap between Y-axis and first bar
+    bar_w = 46.0
+    gap = float(args.bar_gap)      # spacing between bars
     n = len(segs)
-    # Compute total width
+    # Compute total width (bars-driven) and figure height
     total_w = pad_l + axis_gap + n * bar_w + (n - 1) * gap + pad_r
     total_h = float(args.height)
 
@@ -83,6 +104,40 @@ def main():
     y_max = max(s['h2d'] + s['comp'] + s['d2h'] + s['host'] for s in segs)
     y_max = max(y_max, 5.0)
     y_scale = (total_h - pad_t - pad_b) / y_max
+
+    # Ensure canvas is wide enough to fully contain the legend cards + margins
+    # and the right-side labels of the last bar (avoid clipping like seg4 Compute)
+    # Estimate legend width using configured legend sizes to avoid overlap/cropping
+    legend_items = [
+        ('H2D'), ('Compute'), ('D2H'), ('Host(pre/post)')
+    ]
+    legend_font = float(args.legend_font_size)
+    legend_label_gap = 7.0 * (legend_font / 12.0)
+    legend_gap_between = float(args.legend_gap_between)
+    legend_swatch_w = float(args.legend_swatch_width)
+    char_px = 7.8 * (legend_font / 12.0)
+    widths_est = [legend_swatch_w + legend_label_gap + len(name)*char_px for name in legend_items]
+    legend_w_est = sum(widths_est) + (len(legend_items)-1) * legend_gap_between
+    min_canvas_w = legend_w_est + 40.0  # ~20px margins on both sides
+
+    # Also account for the rightmost data labels next to the last bar
+    n = len(segs)
+    if n > 0:
+        last_bx = pad_l + axis_gap + (n - 1) * (bar_w + gap)
+        label_x = last_bx + bar_w + 8.0
+        lbl_font = float(args.seg_label_font_size)
+        lbl_char_px = 7.8 * (lbl_font / 12.0)
+        # Estimate the widest single line among names and numeric labels
+        name_candidates = ['Compute', 'H2D', 'D2H', 'Host']
+        max_num_len = 0
+        for s in segs:
+            max_num_len = max(max_num_len, len(fmt_ms(s['h2d'])), len(fmt_ms(s['comp'])), len(fmt_ms(s['d2h'])), len(fmt_ms(s['host'])))
+        max_name_len = max(len(nm) for nm in name_candidates)
+        max_line_len = max(max_name_len, max_num_len)
+        right_labels_w = max_line_len * lbl_char_px + 16.0  # +margin
+        min_canvas_w = max(min_canvas_w, label_x + right_labels_w)
+    if total_w < min_canvas_w:
+        total_w = min_canvas_w
 
     out = []
     out.append(f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w:.0f}" height="{total_h:.0f}">')
@@ -117,8 +172,12 @@ def main():
     # Extend axes a bit beyond plotting area and add arrowheads
     y_top = max(6.0, pad_t - 6.0)
     x_end = total_w - pad_r + 14.0
-    out.append(f'<line x1="{x0:.2f}" y1="{y0:.2f}" x2="{x0:.2f}" y2="{max(6.0, pad_t-14.0):.2f}" stroke="#444" stroke-width="1.2" marker-end="url(#axisArrow)" />')
+    y_axis_top = max(6.0, pad_t-14.0)
+    out.append(f'<line x1="{x0:.2f}" y1="{y0:.2f}" x2="{x0:.2f}" y2="{y_axis_top:.2f}" stroke="#444" stroke-width="1.2" marker-end="url(#axisArrow)" />')
     out.append(f'<line x1="{x0:.2f}" y1="{y0:.2f}" x2="{(total_w - pad_r + 28.0):.2f}" y2="{y0:.2f}" stroke="#444" stroke-width="1.2" marker-end="url(#axisArrow)" />')
+    # Y-axis unit label (e.g., ms); allow a small downward offset for readability
+    y_unit_y = max(12.0, pad_t - 22.0 + float(args.y_unit_dy))
+    out.append(svg_text(x0 - 10, y_unit_y, args.y_unit, anchor='end', size=args.tick_font_size))
 
     # Y ticks
     ticks = []
@@ -131,7 +190,7 @@ def main():
     for v in ticks:
         yy = y0 - v * y_scale
         out.append(svg_line(x0 - 4, yy, x0, yy, stroke="#444", sw=1.0))
-        out.append(svg_text(x0 - 8, yy + 4, f"{v:.0f}", size=11, anchor='end'))
+        out.append(svg_text(x0 - 8, yy + 5, f"{v:.0f}", size=args.tick_font_size, anchor='end'))
 
     # Helper to allocate non-overlapping label positions near each bar
     def allocate_positions(preferred_list, min_y, max_y, min_sep):
@@ -185,12 +244,8 @@ def main():
         if h > 0:
             out.append(svg_rect(bx, by - h, bar_w, h, col_d2h, opacity=0.95))
             out.append(svg_rect(bx, by - h, bar_w, h, 'url(#d2hHatch)', stroke="none", sw=0, opacity=1.0))
-        # Prefer a virtual slot centered above Compute when zero, but never above Host center
-        host_h_tmp = s['host'] * y_scale
-        host_center = by - ((host_h_tmp/2) if host_h_tmp > 0 else (zero_slot_px/2))
+        # Prefer a virtual slot centered within D2H (or a small slot if zero)
         pref_y = by - ((h/2) if h > 0 else (zero_slot_px/2))
-        if pref_y < host_center + 6.0:
-            pref_y = host_center + 6.0
         labels.append(("D2H", fmt_ms(s['d2h']), pref_y))
         by -= h
         # Host (pre/post combined as one segment)
@@ -205,37 +260,55 @@ def main():
         # Now place labels to avoid overlap, allowing some space below the axis
         min_y_allowed = pad_t + 10.0
         max_y_allowed = y0 + 28.0  # can go a bit more below baseline
-        min_sep = 26.0
-        assigned_y = allocate_positions([p for (_t, _v, p) in labels], min_y_allowed, max_y_allowed, min_sep)
-        for (seg_t, seg_v, _p), ly in zip(labels, assigned_y):
-            out.append(svg_text(bx + bar_w + 6, ly - 10.0, seg_t, anchor='start', size=10))
-            out.append(svg_text(bx + bar_w + 6, ly, seg_v, anchor='start', size=11))
+        min_sep = float(args.label_min_sep)
+        # Render labels in fixed stack order bottom->top while avoiding overlap
+        # Stack order used: H2D (bottom), Compute, D2H, Host (top)
+        labels_stack = labels  # [H2D, Compute, D2H, Host] as appended above
+        preferred = [p for (_t, _v, p) in labels_stack]
+        # Allocate positions top->bottom so ordering is preserved
+        order_top_to_bottom = sorted(range(len(preferred)), key=lambda i: preferred[i])
+        preferred_sorted = [preferred[i] for i in order_top_to_bottom]
+        assigned_sorted = allocate_positions(preferred_sorted, min_y_allowed, max_y_allowed, min_sep)
+        # Map assigned positions back to original indices
+        assigned_by_index = [0.0] * len(preferred)
+        for i, y_pos in zip(order_top_to_bottom, assigned_sorted):
+            assigned_by_index[i] = y_pos
+        # Draw labels in bottom->top stack order
+        for idx, (seg_t, seg_v, _p) in enumerate(labels_stack):
+            ly = assigned_by_index[idx]
+            out.append(svg_text(bx + bar_w + 8, ly - 12.0, seg_t, anchor='start', size=args.seg_label_font_size))
+            out.append(svg_text(bx + bar_w + 8, ly + 2.0, seg_v, anchor='start', size=args.seg_label_font_size))
 
         # X label
-        out.append(svg_text(bx + bar_w/2, y0 + 18, s['name'].replace('seg','seg '), size=12))
+        out.append(svg_text(bx + bar_w/2, y0 + 22, s['name'].replace('seg','seg '), size=args.x_label_font_size))
 
     # Legend (top) — fixed safe position to avoid clipping when bars move
-    legend_y = 26.0
+    legend_top_pad = max(0.0, float(args.legend_top_pad))
+    legend_y = max(legend_top_pad + args.legend_swatch_height, float(args.legend_y))
     mono_family = 'DejaVu Sans Mono, Menlo, Consolas, monospace'
-    # Scale legend card size with figure height so bars higher => cards larger
-    scale_leg = max(0.9, min(1.8, total_h / 300.0))
-    sw_w, sw_h = 22.0 * scale_leg, 14.0 * scale_leg
-    label_font = max(10.0, min(16.0, 12.0 * scale_leg))
-    label_gap = 6.0 * (label_font / 12.0)
-    gap_between = 12.0
+    # Fixed legend metrics (explicit sizes)
+    sw_w, sw_h = float(args.legend_swatch_width), float(args.legend_swatch_height)
+    label_font = float(args.legend_font_size)
+    label_gap = 7.0 * (label_font / 12.0)
+    gap_between = float(args.legend_gap_between)
     items = [
         (col_h2d, 'H2D', 'h2dHatch'),
         (col_comp, 'Compute', None),
         (col_d2h, 'D2H', 'd2hHatch'),
         (col_host, 'Host(pre/post)', 'hostHatch'),
     ]
-    char_px = 7.2 * (label_font / 12.0)
+    char_px = 7.8 * (label_font / 12.0)
     widths = [sw_w + label_gap + len(name) * char_px for _c, name, _p in items]
     legend_w = sum(widths) + (len(items)-1)*gap_between
     lx = (total_w - legend_w)/2.0
     xc = lx
     for (c, name, pid), w in zip(items, widths):
-        rect_y = legend_y - sw_h + 2
+        rect_y = legend_y - sw_h + legend_top_pad
+        if rect_y < 0:
+            # push legend down if swatch would clip
+            dy = -rect_y
+            legend_y += dy
+            rect_y = legend_y - sw_h + legend_top_pad
         out.append(svg_rect(xc, rect_y, sw_w, sw_h, c, sw=0.8, rx=2, ry=2, opacity=0.95))
         if pid:
             out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pid})', stroke="none", sw=0, rx=2, ry=2, opacity=1.0))

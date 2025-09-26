@@ -1,0 +1,20 @@
+{
+  "datasets": {
+    "partial": {
+      "title": "Partial on-chip",
+      "h2d": 15.152,
+      "wstream": 3.206,
+      "compute": 0.568,
+      "d2h": 0.06,
+      "input": 0.413
+    },
+    "fully": {
+      "title": "Fully on-chip",
+      "h2d": 14.161,
+      "wstream": 0.0,
+      "compute": 3.12,
+      "d2h": 0.06,
+      "input": 0.414
+    }
+  }
+}

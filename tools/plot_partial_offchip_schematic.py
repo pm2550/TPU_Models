@@ -7,6 +7,9 @@ shows compute. Long H2D spans are visually compressed with an axis break.
 """
 import argparse
 import math
+import json
+import sys
+import subprocess
 from pathlib import Path
 
 # Global font delta applied to all text sizes (in px)
@@ -50,6 +53,7 @@ def main():
     ap.add_argument('--copy-gap', type=float, default=36.0, help='Vertical gap between copies (px)')
     ap.add_argument('--use-measured', action='store_true', help='Use measured durations to draw geometry (applies to all copies unless --copy-modes is set)')
     ap.add_argument('--swow-ms', type=float, default=None, help='Streaming without off-chip weight duration (ms); defaults to max(H2D - wstream, 0)')
+    ap.add_argument('--input-streaming', type=float, default=None, help='Input streaming duration (ms) for top copy; splits H2D')
     ap.add_argument('--copy-modes', type=str, default='original,measured', help='Comma-separated per-copy modes: original or measured, e.g., "original,measured"')
     ap.add_argument('--axis-mode', type=str, default='auto', choices=['auto','original','measured'], help='Which mode to use for axis timeline; auto uses the first copy mode')
     ap.add_argument('--font-delta', type=float, default=0.0, help='Increase all font sizes by this many px (e.g., 2.0 to go up one size)')
@@ -67,8 +71,15 @@ def main():
     ap.add_argument('--bottom-d2h', type=float, default=None, help='Bottom copy: D2H duration (ms)')
     ap.add_argument('--bottom-wstream', type=float, default=None, help='Bottom copy: off-chip weight streaming duration (ms)')
     ap.add_argument('--bottom-h2d', type=float, default=None, help='Bottom copy: H2D duration (ms) (used only if mode=original for bottom)')
+    ap.add_argument('--bottom-input-streaming', type=float, default=None, help='Bottom copy: input streaming duration (ms)')
+    # Compute tail-fixed extension: draw compute with a longer duration by moving its head left, tail unchanged
+    ap.add_argument('--compute-tailfixed-ms', type=float, default=None, help='Top copy: draw compute with this duration but keep its end time unchanged (extends head left)')
+    ap.add_argument('--bottom-compute-tailfixed-ms', type=float, default=None, help='Bottom copy: draw compute with this duration but keep its end time unchanged (extends head left)')
+    # Axis unit label (e.g., ms) near the arrow on the x-axis
+    ap.add_argument('--axis-unit', type=str, default='ms', help='Unit label for the axis (e.g., ms). Empty string to hide')
+    ap.add_argument('--axis-unit-size', type=float, default=16.0, help='Font size for the axis unit label (px)')
     # Optional per-copy titles rendered at the far left of each copy (left of USB/TPU labels)
-    ap.add_argument('--title-top', type=str, default='Partial off-chip', help='Title for the top copy (e.g., "Partial off-chip")')
+    ap.add_argument('--title-top', type=str, default='Partial on-chip', help='Title for the top copy (e.g., "Partial on-chip")')
     ap.add_argument('--title-bottom', type=str, default='Fully on-chip', help='Title for the bottom copy (e.g., "Fully on-chip")')
     ap.add_argument('--block-label-size', type=float, default=16.0, help='Font size for numeric labels on blocks (px)')
     ap.add_argument('--lane-label-size', type=float, default=None, help='Font size for lane labels USB/TPU (px); default matches legend text size')
@@ -82,7 +93,58 @@ def main():
     ap.add_argument('--title-margin', type=float, default=6.0, help='Gap between title and bar start (pad_l) in px')
     ap.add_argument('--title-usb-gap', type=float, default=8.0, help='Min gap between title end and the first letter of USB (px)')
     ap.add_argument('--lane-label-swap-offset', type=float, default=60.0, help='When swapping, distance (px) to place USB/TPU left of the bars')
+    # Dataset registry and split export
+    ap.add_argument('--dataset-file', type=str, default='data/partial_offchip_schematic.json', help='JSON file storing named datasets')
+    ap.add_argument('--dataset-keys', type=str, default='partial,fully', help='Comma-separated dataset keys to use (order matters)')
+    ap.add_argument('--split-into-singles', action='store_true', help='Generate separate single-copy images for each dataset key')
+    ap.add_argument('--outfile-base', type=str, default=None, help='Base path for split outputs; defaults to --outfile without extension')
     args = ap.parse_args()
+
+    # Split-export mode: generate single-copy images for datasets defined in a registry
+    if args.split_into_singles:
+        ds_path = Path(args.dataset_file)
+        if not ds_path.exists():
+            ds_path.parent.mkdir(parents=True, exist_ok=True)
+            default = {
+                "datasets": {
+                    "partial": {"title": "Partial on-chip", "h2d": 15.152, "wstream": 3.206, "compute": 0.568, "d2h": 0.060, "input": 0.413},
+                    "fully": {"title": "Fully on-chip", "h2d": 14.161, "wstream": 0.0, "compute": 3.120, "d2h": 0.060, "input": 0.414}
+                }
+            }
+            ds_path.write_text(json.dumps(default, indent=2), encoding='utf-8')
+        data = json.loads(ds_path.read_text(encoding='utf-8'))
+        datasets = data.get('datasets', {})
+        keys = [k.strip() for k in args.dataset_keys.split(',') if k.strip()]
+        base_noext = Path(args.outfile_base) if args.outfile_base else Path(args.outfile).with_suffix('')
+        outputs = []
+        for k in keys:
+            if k not in datasets:
+                continue
+            d = datasets[k]
+            out_svg = str(Path(f"{base_noext}_{k}.svg"))
+            child_argv = [
+                sys.executable, __file__,
+                '--outfile', out_svg,
+                '--h2d', str(d.get('h2d', 0.0)),
+                '--wstream', str(d.get('wstream', 0.0)),
+                '--compute', str(d.get('compute', 0.0)),
+                '--d2h', str(d.get('d2h', 0.0)),
+                '--input-streaming', str(d.get('input', 0.0)),
+                '--copies', '1',
+                '--title-top', d.get('title', k),
+                '--axis-unit', args.axis_unit,
+                '--axis-unit-size', str(args.axis_unit_size),
+                '--break-left-vis', str(args.break_left_vis if args.break_left_vis is not None else args.axis_left_end),
+                '--break-right-vis', str(args.break_right_vis if args.break_right_vis is not None else args.axis_right_start),
+                '--axis-left-end', str(args.axis_left_end),
+                '--axis-right-start', str(args.axis_right_start),
+                '--tick-left-step', str(args.tick_left_step),
+                '--tick-right-step', str(args.tick_right_step)
+            ]
+            subprocess.run(child_argv, check=True)
+            outputs.append(out_svg)
+        print("\n".join(outputs))
+        return
 
     pad_l, pad_r, pad_t, pad_b = 90.0, 60.0, 40.0, 60.0
     # Set global font delta
@@ -135,6 +197,7 @@ def main():
                 base_h2d = args.bottom_h2d if args.bottom_h2d is not None else args.h2d
                 base_wstream = wstream
                 h2d_duration = max(0.0, base_h2d - base_wstream)
+            input_stream = args.bottom_input_streaming if args.bottom_input_streaming is not None else 0.0
         else:
             wstream = args.wstream
             compute = args.compute
@@ -144,8 +207,13 @@ def main():
                 h2d_duration = args.swow_ms
             else:
                 h2d_duration = max(0.0, args.h2d - args.wstream)
+            input_stream = args.input_streaming if args.input_streaming is not None else 0.0
+        # Split H2D into input + on-chip
+        input_stream = max(0.0, min(h2d_duration, float(input_stream)))
+        onchip = max(0.0, h2d_duration - input_stream)
         return {
-            'h2d': h2d_duration,
+            'input': input_stream,
+            'onchip': onchip,
             'wstream': wstream,
             'compute': compute,
             'd2h': d2h,
@@ -170,7 +238,7 @@ def main():
 
     # Axis timeline durations (shared mapping)
     axis_durs = compute_durations(axis_mode, 0)
-    h2d_s, h2d_e = 0.0, axis_durs['h2d']
+    h2d_s, h2d_e = 0.0, axis_durs['input'] + axis_durs['onchip']
     ws_s, ws_e = h2d_e, h2d_e + axis_durs['wstream']
     comp_s, comp_e = ws_e, ws_e + axis_durs['compute']
     d2h_s, d2h_e = comp_e, comp_e + axis_durs['d2h']
@@ -179,7 +247,7 @@ def main():
     copy_totals = []
     for i in range(copies):
         di = compute_durations(copy_modes[i], i)
-        copy_totals.append(di['h2d'] + di['wstream'] + di['compute'] + di['d2h'])
+        copy_totals.append((di['input'] + di['onchip']) + di['wstream'] + di['compute'] + di['d2h'])
     if copy_totals:
         total_actual = max(total_actual, max(copy_totals))
 
@@ -230,10 +298,11 @@ def main():
         bottom_content = max(bottom_content, y_base_last + 50.0)
     total_h = bottom_content + pad_b
 
-    col_h2d = '#1f77b4'
+    col_h2d = '#1f77b4'  # On-chip weight streaming
     col_d2h = '#d62728'
     col_comp = '#7f7f7f'
     col_stream = '#f3dcb4'
+    col_input = '#9ecae1'  # Input streaming uses a distinct lighter blue
 
     # Prepare legend metrics first to ensure the canvas is wide enough to contain it
     # Legend baseline Y; ensure swatch top is not outside the canvas
@@ -247,11 +316,13 @@ def main():
     label_gap = 7.0 * (lane_h / 26.0 if args.legend_match_lane else lg_scale)
     gap_between = max(0.0, float(args.legend_gap_between))
     mono_family = 'DejaVu Sans Mono, Menlo, Consolas, monospace'
+    # Legend items: top row shows D2H, Compute, Off-chip streaming; bottom row shows On-chip + Input
     items = [
-        (col_h2d, 'Streaming without off-chip weight', 'h2dHatch'),
-        (col_comp, 'Compute', None),
         (col_stream, 'Off-chip weight streaming', 'wstreamCross'),
+        (col_comp, 'Compute', None),
         (col_d2h, 'D2H', 'd2hHatch'),
+        (col_h2d, 'On-chip weight streaming', 'h2dHatch'),
+        (col_input, 'Input streaming', 'inputHatch'),
     ]
     # Scale label width estimate by legend text size change (baseline 12px)
     legend_font_size = 12.0 * (lane_h / 16.0) if args.legend_match_lane else 12.0 * lg_scale
@@ -263,9 +334,10 @@ def main():
     title_px = float(args.title_size) if args.title_size is not None else float(legend_font_size)
     tick_px = float(args.tick_font_size) if args.tick_font_size is not None else float(legend_font_size)
     widths = [sw_w + label_gap + len(name)*7.8 * font_scale * tws + tail_gap for _c, name, _p in items]
-    # Two-per-row layout
-    row1_idx = [0,1]
-    row2_idx = [2,3] if len(items) > 2 else []
+    # Top row: D2H, Compute, Off-chip; Bottom row: On-chip, Input
+    # (indices correspond to the 'items' array above)
+    row1_idx = [2,1,0]
+    row2_idx = [3,4]
     row1_w = sum(widths[i] for i in row1_idx) + (len(row1_idx)-1)*gap_between
     row2_w = sum(widths[i] for i in row2_idx) + (len(row2_idx)-1)*gap_between if row2_idx else 0.0
     legend_w = max(row1_w, row2_w)
@@ -292,13 +364,20 @@ def main():
                '<path d="M 0 0 L 0 6" stroke="#000000" stroke-width="1.1" opacity="0.55" />'
                '<path d="M 0 0 L 6 0" stroke="#000000" stroke-width="1.1" opacity="0.55" />'
                '</pattern>')
+    out.append('<pattern id="inputHatch" patternUnits="userSpaceOnUse" width="6" height="6">'
+               '<rect width="6" height="6" fill="none" />'
+               '<path d="M 3 0 L 3 6" stroke="#000000" stroke-width="1.1" opacity="0.55" />'
+               '</pattern>')
     out.append('</defs>')
 
     # Raise legend higher (further from bars)
-    # Two rows of legend items, centered per row
+    # Two rows of legend items, horizontally centered to the bars/axis area
     row_gap = max(0.0, float(args.legend_row_gap))
-    # Row 1
-    lx1 = (total_w - row1_w)/2.0
+    # Row 1 (center to the visible axis span rather than full canvas)
+    axis_left_x = pad_l
+    axis_right_x = pad_l + axis_visual_width
+    axis_center_x = (axis_left_x + axis_right_x) / 2.0
+    lx1 = axis_center_x - row1_w/2.0
     xc = lx1
     for i in row1_idx:
         fill_color, name, pattern_id = items[i]
@@ -312,7 +391,7 @@ def main():
     # Row 2
     if row2_idx:
         legend_y2 = legend_y + sw_h + row_gap
-        lx2 = (total_w - row2_w)/2.0
+        lx2 = axis_center_x - row2_w/2.0
         xc = lx2
         for i in row2_idx:
             fill_color, name, pattern_id = items[i]
@@ -418,18 +497,40 @@ def main():
         mode = copy_modes[idx]
         durs = compute_durations(mode, idx)
         # Local starts/ends for this copy's blocks (but mapping still uses axis timeline)
-        lh2d_s, lh2d_e = 0.0, durs['h2d']
-        lws_s, lws_e = lh2d_e, lh2d_e + durs['wstream']
+        # Place On-chip weight streaming first, then Input streaming, then Off-chip streaming
+        lonc_s, lonc_e = 0.0, durs.get('onchip', 0.0)
+        lin_s, lin_e = lonc_e, lonc_e + durs.get('input', 0.0)
+        lws_s, lws_e = lin_e, lin_e + durs['wstream']
         lcomp_s, lcomp_e = lws_e, lws_e + durs['compute']
+        # Optionally keep tail fixed and extend compute head left to reach a desired duration
+        if idx == 0 and args.compute_tailfixed_ms is not None:
+            desired = float(args.compute_tailfixed_ms)
+            if desired > 0:
+                lcomp_s = max(0.0, lcomp_e - desired)
+                compute_display = desired
+            else:
+                compute_display = durs['compute']
+        elif idx == 1 and args.bottom_compute_tailfixed_ms is not None:
+            desired = float(args.bottom_compute_tailfixed_ms)
+            if desired > 0:
+                lcomp_s = max(0.0, lcomp_e - desired)
+                compute_display = desired
+            else:
+                compute_display = durs['compute']
+        else:
+            compute_display = durs['compute']
         # Place D2H after compute so compute is between streaming and D2H
         ld2h_s, ld2h_e = lcomp_e, lcomp_e + durs['d2h']
 
-        # Always display H2D label as (H2D - wstream) for this copy, while geometry follows per-copy mode
-        h2d_display = durs['h2d']
-        draw_block(usb_y, lh2d_s, lh2d_e, col_h2d, 'h2dHatch', label=f"{h2d_display:.3f}", label_offset_y=-6.0, opacity=0.95)
-        draw_block(usb_y, lws_s, lws_e, col_stream, 'wstreamCross', label=f"{durs['wstream']:.3f}", label_offset_y=lane_h + 18.0, opacity=0.92)
+        # Draw input and on-chip (split H2D)
+        if durs.get('onchip', 0.0) > 0:
+            draw_block(usb_y, lonc_s, lonc_e, col_h2d, 'h2dHatch', label=f"{durs['onchip']:.3f}", label_offset_y=-6.0, opacity=0.95)
+        if durs.get('input', 0.0) > 0:
+            draw_block(usb_y, lin_s, lin_e, col_input, 'inputHatch', label=f"{durs['input']:.3f}", label_offset_y=-6.0, opacity=0.95)
+        # Place Off-chip weight streaming label above the bar to avoid overlap with TPU compute below
+        draw_block(usb_y, lws_s, lws_e, col_stream, 'wstreamCross', label=f"{durs['wstream']:.3f}", label_offset_y=-6.0, opacity=0.92)
         draw_block(usb_y, ld2h_s, ld2h_e, col_d2h, 'd2hHatch', label=f"{durs['d2h']:.3f}", label_offset_y=-6.0, opacity=0.95)
-        draw_block(tpu_y, lcomp_s, lcomp_e, col_comp, None, label=f"{durs['compute']:.3f}", label_offset_y=-6.0, opacity=0.65)
+        draw_block(tpu_y, lcomp_s, lcomp_e, col_comp, None, label=f"{compute_display:.3f}", label_offset_y=-6.0, opacity=0.65)
 
         # Axis (only for the first copy to share one axis)
         if idx == 0:
@@ -465,6 +566,12 @@ def main():
             out.append(f'<path d="M {break_center-5:.2f},{(y_base-3):.2f} L {break_center-1:.2f},{(y_base+3):.2f}" stroke="#4d4d4d" stroke-width="1.3" />')
             out.append(f'<path d="M {break_center+1:.2f},{(y_base-3):.2f} L {break_center+5:.2f},{(y_base+3):.2f}" stroke="#4d4d4d" stroke-width="1.3" />')
             out.append(f'<line x1="{right_axis_start_draw:.2f}" y1="{y_base:.2f}" x2="{axis_end:.2f}" y2="{y_base:.2f}" stroke="#4d4d4d" stroke-width="1.3" marker-end="url(#arrowhead)" />')
+
+            # Axis unit label near the arrow (e.g., 'ms')
+            if args.axis_unit:
+                unit_x = axis_end - 8.0
+                unit_y = y_base - 10.0
+                out.append(svg_text(unit_x, unit_y, args.axis_unit, anchor='end', size=float(args.axis_unit_size)))
 
             # Ticks
             lstep = max(1e-6, args.tick_left_step)
