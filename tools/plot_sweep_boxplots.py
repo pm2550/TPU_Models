@@ -27,6 +27,8 @@ from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 BASE = Path('/home/10210/Desktop/OS')
 SWEEP_CSV = BASE / 'five_models/results/theory_sweeps/all_models.csv'
@@ -34,8 +36,8 @@ MEAS_CSV = BASE / 'five_models/results/combo_cycle_times.csv'
 OUT_DIR = BASE / 'five_models/results/theory_sweeps/plots'
 
 # Outlier filtering configuration (must match run_model_theory_sweeps.py)
-MAD_K = 5.0  # keep |x - median| <= MAD_K * (1.4826 * MAD)
-IQR_K = 1.5  # fallback IQR fence
+MAD_K = 3.0  # default |x - median| <= MAD_K * (1.4826 * MAD)
+IQR_K = 1.5  # default IQR fence
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +47,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument('--out', type=Path, default=OUT_DIR, help='Output directory for plots and metrics')
     ap.add_argument('--models', type=str, default='', help='Comma-separated model names to include (default: all in sweep CSV)')
     ap.add_argument('--whis', type=str, default='range', help='Whiskers: "range" for min/max, or e.g. "5,95"')
+    ap.add_argument('--filter-mode', type=str, default='mad', choices=['mad','iqr','none'],
+                    help='Outlier filter mode for input points (default: mad)')
+    ap.add_argument('--mad-k', type=float, default=MAD_K, help='MAD filter k (default: 5.0)')
+    ap.add_argument('--iqr-k', type=float, default=IQR_K, help='IQR fence k (default: 1.5)')
     return ap.parse_args()
 
 
@@ -59,7 +65,7 @@ def median(vals):
     return 0.5 * (s[m-1] + s[m])
 
 
-def mad_filter(values):
+def mad_filter(values, *, mode: str='mad', mad_k: float=MAD_K, iqr_k: float=IQR_K):
     """Return (inliers, outliers) with MAD k and IQR fallback (matches sweep script).
     - Primary: keep |x - median| <= MAD_K * (1.4826 * MAD)
     - Fallback: IQR fence with k=IQR_K when MAD ~ 0
@@ -70,18 +76,30 @@ def mad_filter(values):
     med = median(vals)
     abs_dev = [abs(v - med) for v in vals]
     mad = median(abs_dev)
-    if mad > 1e-9:
+    if mode == 'none':
+        lo, hi = -float('inf'), float('inf')
+    elif mode == 'iqr':
+        s = sorted(vals)
+        q1 = s[int(0.25 * (len(s) - 1))]
+        q3 = s[int(0.75 * (len(s) - 1))]
+        iqr = q3 - q1
+        if iqr > 0:
+            lo = q1 - iqr_k * iqr
+            hi = q3 + iqr_k * iqr
+        else:
+            lo, hi = -float('inf'), float('inf')
+    elif mad > 1e-9:
         sigma = 1.4826 * mad
-        lo = med - MAD_K * sigma
-        hi = med + MAD_K * sigma
+        lo = med - mad_k * sigma
+        hi = med + mad_k * sigma
     else:
         s = sorted(vals)
         q1 = s[int(0.25 * (len(s) - 1))]
         q3 = s[int(0.75 * (len(s) - 1))]
         iqr = q3 - q1
         if iqr > 0:
-            lo = q1 - IQR_K * iqr
-            hi = q3 + IQR_K * iqr
+            lo = q1 - iqr_k * iqr
+            hi = q3 + iqr_k * iqr
         else:
             lo, hi = -float('inf'), float('inf')
     inliers = [x for x in vals if lo <= x <= hi]
@@ -168,7 +186,7 @@ def load_sweep_totals(sweep_csv: Path):
     return models, lb, ub, exp, meta
 
 
-def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp):
+def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp, *, mode: str, mad_k: float, iqr_k: float):
     """Compute coverage/violation metrics for a model (aggregated across Ks).
     Returns a dict with rates and severities for UB and expected_UB, and per-K details list.
     """
@@ -193,7 +211,7 @@ def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp):
         arr_all = measured.get((model, K), [])
         if not arr_all:
             continue
-        arr_in, _ = mad_filter(arr_all)
+        arr_in, _ = mad_filter(arr_all, mode=mode, mad_k=mad_k, iqr_k=iqr_k)
         l = lb.get((model, K), math.nan)
         u = ub.get((model, K), math.nan)
         e = exp.get((model, K), math.nan)
@@ -275,7 +293,7 @@ def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp):
     return model_metrics, per_k
 
 
-def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir: Path, whis=(5, 95)):
+def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir: Path, whis=(5, 95), *, mode: str, mad_k: float, iqr_k: float, f_expected: float | None = None):
     short = model.split('_')[0]
     # Prepare data for K=2..8 (skip empty groups to avoid matplotlib issue)
     xs = []
@@ -287,7 +305,7 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
         arr = measured.get((model, K), [])
         if not arr:
             continue
-        inliers, _ = mad_filter(arr)
+        inliers, _ = mad_filter(arr, mode=mode, mad_k=mad_k, iqr_k=iqr_k)
         if not inliers:
             continue
         xs.append(K)
@@ -339,7 +357,13 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
         return [series.get((model, pos_to_K[i]), math.nan) for i in pos]
     # We already collected y_* arrays in the same order; use those
     ax.plot(pos, y_lb, '-o', color='green', linewidth=1.8, markersize=3, label='LB')
-    ax.plot(pos, y_exp, '-o', color='gold', linewidth=1.8, markersize=3, label='expected UB')
+    label_exp = 'Expected UB'
+    try:
+        if f_expected is not None and math.isfinite(float(f_expected)):
+            label_exp = f'Expected UB (f={float(f_expected):.2f})'
+    except Exception:
+        pass
+    ax.plot(pos, y_exp, '-o', color='gold', linewidth=1.8, markersize=3, label=label_exp)
     ax.plot(pos, y_ub, '-o', color='red', linewidth=1.8, markersize=3, label='UB')
 
     # X-axis labels as actual K values
@@ -349,7 +373,18 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
     ax.set_ylabel('Time per cycle (ms)')
     ax.set_title(f'{short} — Measured distribution vs theory (ms)')
     ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6)
-    ax.legend(loc='lower right', fontsize=8, framealpha=0.85)
+    # Top-left legend: explain box semantics
+    whisk_h = Line2D([0], [0], color='black', linewidth=1.2, label='Full range')
+    box_h = Patch(facecolor='white', edgecolor='black', linewidth=1.2, label='P25–P75')
+    mean_h = Line2D([0], [0], marker='^', linestyle='None', markersize=6,
+                    markerfacecolor='#1f77b4', markeredgecolor='#1f77b4', label='Mean')
+    med_h = Line2D([0], [0], color='#ff7f0e', linewidth=1.4, label='Median')
+    legend_box = ax.legend(handles=[whisk_h, box_h, mean_h, med_h],
+                           loc='upper left', fontsize=8, framealpha=0.9)
+
+    # Bottom-right legend: theory lines
+    legend_lines = ax.legend(loc='lower right', fontsize=8, framealpha=0.85)
+    ax.add_artist(legend_box)
     fig.tight_layout()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f'{short}_box_vs_K.png'
@@ -385,12 +420,16 @@ def main():
     metrics_rows = []
     per_k_rows = []
     for model in models:
-        p = plot_model_boxplot(model, Ks, measured, lb, ub, exp, out_dir, whis=whis)
+        meta_m = meta.get(model, {})
+        f_expected = meta_m.get('f_expected_gt_99') if isinstance(meta_m, dict) else None
+        p = plot_model_boxplot(model, Ks, measured, lb, ub, exp, out_dir, whis=whis,
+                               mode=args.filter_mode, mad_k=args.mad_k, iqr_k=args.iqr_k,
+                               f_expected=f_expected)
         if p:
             out_paths.append(p)
-        mrow, krows = compute_metrics_for_model(model, Ks, measured, lb, ub, exp)
+        mrow, krows = compute_metrics_for_model(model, Ks, measured, lb, ub, exp,
+                                               mode=args.filter_mode, mad_k=args.mad_k, iqr_k=args.iqr_k)
         # Attach sweep meta
-        meta_m = meta.get(model, {})
         mrow.update({
             'f_expected_gt_99': meta_m.get('f_expected_gt_99'),
             'expected_coverage_rate': meta_m.get('expected_coverage_rate'),

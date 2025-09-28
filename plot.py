@@ -284,8 +284,8 @@ def main():
     # model_path = "./edgetpu/test_data/inception_v1_224_quant_edgetpu.tflite"
     # model_path="./inception_v1_224_quant_cpu.tflite"
     # model_path= "./tpu/conv2d_tpu.tflite"
-    model_path="models_local/public/mobilenetv2_8seg_uniform_local/full_split_pipeline_local/tpu/co_compile_full_1.0_vs_full/full_int8_edgetpu.tflite"
-    model_path="models_local/public/mobilenetv2_8seg_uniform_local/full_split_pipeline_local/tpu/full_int8_edgetpu.tflite"
+    # model_path="models_local/public/densenet201_8seg_uniform_local/full_split_pipeline_local/tpu/seg1_int8_edgetpu.tflite"
+    # model_path="models_local/public/mobilenetv2_8seg_uniform_local/full_split_pipeline_local/tpu/full_int8_edgetpu.tflite"
     # num_runs   = 1000
     num_runs   = 1000
 

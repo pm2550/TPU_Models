@@ -5,7 +5,7 @@ per-model CSV that includes LB, UB (slow D2H), and a scaled-UB using a factor f
 chosen to cover >=99% of measured invoke means in single-mode summaries.
 
 Details:
-- Th_ms fixed at 1.2 ms; host slope kappa=0.
+- Th_ms fixed at 0.5 ms; host slope kappa=0.
 - LB uses fast D2H (B_OUT), UB uses slow D2H (B_OUT2). H2D speed fixed per model.
 - t_rem (offchip) per group:
   * LB: max(off_ms - Ce_ms, 0)
@@ -34,29 +34,98 @@ COMBO_CYCLE_CSV = BASE/'five_models/results/combo_cycle_times.csv'
 OUT_DIR = BASE/'five_models/results/theory_sweeps'
 
 # Model-specific H2D speeds (MiB/s)
+# MODEL_H2D = {
+#     'resnet101_8seg_uniform_local': 344.0,
+#     'resnet50_8seg_uniform_local': 339.5,
+#     'inceptionv3_8seg_uniform_local': 338.6,
+#     'xception_8seg_uniform_local': 287.0,
+#     'densenet201_8seg_uniform_local': 325.0,
+# }
 MODEL_H2D = {
     'resnet101_8seg_uniform_local': 344.0,
-    'resnet50_8seg_uniform_local': 339.5,
-    'inceptionv3_8seg_uniform_local': 338.6,
-    'xception_8seg_uniform_local': 287.0,
-    'densenet201_8seg_uniform_local': 325.0,
+    'resnet50_8seg_uniform_local': 344.0,
+    'inceptionv3_8seg_uniform_local': 344.0,
+    'xception_8seg_uniform_local': 344.0,
+    'densenet201_8seg_uniform_local': 344.0,
 }
+
+# Optional: override all models' H2D via env FORCE_B_IN (MiB/s)
+try:
+    _FORCE_B_IN = os.environ.get('FORCE_B_IN')
+    if _FORCE_B_IN is not None and str(_FORCE_B_IN).strip() != '':
+        _forced_val = float(_FORCE_B_IN)
+    else:
+        _forced_val = None
+except Exception:
+    _forced_val = None
 
 # D2H speeds: fast vs slow (MiB/s). Use compute_theory defaults unless overridden via env.
 DEFAULT_B_OUT = 87.0
 DEFAULT_B_OUT2 = 35.0
 
+# Host-delta (Th) configuration — optional formula toggle
+def _fbool(val: str | None, default: bool=False) -> bool:
+    if val is None:
+        return default
+    v = str(val).strip().lower()
+    return v in ('1','true','yes','y','on')
+
+# When enabled, Th per group is computed as: Th = T_host(model) + kappa * U_in_ms,
+# where U_in_ms is chosen by HOST_DELTA_SPAN_SOURCE, mimicking compute_theory_chain_times.py
+USE_HOST_DELTA_FORMULA = _fbool(os.environ.get('USE_HOST_DELTA_FORMULA'), False)
+HOST_DELTA_SPAN_SOURCE = os.environ.get('HOST_DELTA_SPAN_SOURCE', 'theory_cout')
+try:
+    KAPPA_MS_PER_MS = float(os.environ.get('KAPPA_MS_PER_MS', '0.2992134815732149'))
+except Exception:
+    KAPPA_MS_PER_MS = 0.2992134815732149
+try:
+    HOST_C_MS = float(os.environ.get('HOST_C_MS', '0.5527747236073199'))
+except Exception:
+    HOST_C_MS = 0.5527747236073199
+USE_PER_MODEL_THOST = _fbool(os.environ.get('USE_PER_MODEL_THOST'), False)
+
+_IN_SPAN_CACHE = None  # loaded lazily if needed (for measured_in)
+_T_HOST_CACHE = None   # per-model Th intercept if requested
+
+def _load_in_span_map():
+    global _IN_SPAN_CACHE
+    if _IN_SPAN_CACHE is not None:
+        return _IN_SPAN_CACHE
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location('compute_theory_chain_times', str(TOOLS/'compute_theory_chain_times.py'))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _IN_SPAN_CACHE = mod.read_in_span_ms()
+    except Exception:
+        _IN_SPAN_CACHE = {}
+    return _IN_SPAN_CACHE
+
+def _load_T_host_map(kappa: float):
+    global _T_HOST_CACHE
+    if _T_HOST_CACHE is not None:
+        return _T_HOST_CACHE
+    try:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location('compute_theory_chain_times', str(TOOLS/'compute_theory_chain_times.py'))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _T_HOST_CACHE = mod.read_T_host_per_model(kappa)
+    except Exception:
+        _T_HOST_CACHE = {}
+    return _T_HOST_CACHE
+
 
 def call_compute(B_IN: float, B_OUT: float, B_OUT2: float) -> None:
     """Invoke compute_theory with env overrides.
-    - Fixed host Th=1.2ms and kappa=0.
+    - Fixed host Th=0.5ms and kappa=0.
     - Allow EXTRA_CIN_BYTES passthrough if set (previous behavior).
     """
     os.environ['USE_CODE_DEFAULTS'] = '0'
     os.environ['B_IN'] = str(B_IN)
     os.environ['B_OUT'] = str(B_OUT)
     os.environ['B_OUT2'] = str(B_OUT2)
-    os.environ['HOST_C_MS'] = '1.2'
+    os.environ['HOST_C_MS'] = '0.5'
     os.environ['KAPPA_MS_PER_MS'] = '0.0'
     # import and run
     import importlib.util as _ilu
@@ -135,7 +204,7 @@ def cin_ms_with_extra(cin_bytes: float, b_in_mibps: float) -> float:
     return bytes_to_ms((cin_bytes or 0.0) + float(EXTRA_CIN_BYTES), b_in_mibps)
 
 
-def choose_factor_99(model: str, enriched_rows: list[dict], th_ms: float = 1.2,
+def choose_factor_99(model: str, enriched_rows: list[dict],
                      coverage_quantile: float = 0.99) -> tuple[float, float, int, int, int]:
     """Pick minimal factor f (single per-model) so that across ALL cycles
     (K=2..8, all rounds), UB_f(K) covers at least the given coverage_quantile
@@ -177,7 +246,7 @@ def choose_factor_99(model: str, enriched_rows: list[dict], th_ms: float = 1.2,
         return 1.0, 1.0, 0, 0, 0
 
     # Per-K outlier filtering (align with plot_combo_speeds.py):
-    # MAD fence: |x - median| <= 5.0 * (1.4826 * MAD); fallback IQR 1.5 fence
+    # MAD fence: |x - median| <= 3.0 * (1.4826 * MAD); fallback IQR 1.5 fence
     meas_filt: list[tuple[int, float]] = []
     dropped = 0
     byK_ms: dict[int, list[float]] = {}
@@ -193,8 +262,8 @@ def choose_factor_99(model: str, enriched_rows: list[dict], th_ms: float = 1.2,
         kept: list[float] = []
         if mad > 1e-9:
             sigma = 1.4826 * mad
-            lo = med - 5.0 * sigma
-            hi = med + 5.0 * sigma
+            lo = med - 3.0 * sigma
+            hi = med + 3.0 * sigma
             kept = [x for x in vals if (x >= lo and x <= hi)]
         else:
             s = sorted(vals)
@@ -216,17 +285,22 @@ def choose_factor_99(model: str, enriched_rows: list[dict], th_ms: float = 1.2,
     def total_for_k(f: float, rows: list[dict]) -> float:
         # Sum per-group for "expected" bound using UB Cout (slow)
         # Only fraction f can overlap Ce; the rest (1-f) is extra outside overlap.
-        # total = Cin + Cout_slow + Ce + [max(f*off - Ce, 0) + (1-f)*off] + t_warm + Th
+        # total = Cin + Cout_slow + Ce + [max(f*off - Ce, 0) + (1-f)*off] + t_warm + sum(Th_group)
         const = 0.0
         sum_rem = 0.0
+        sum_th = 0.0
         n = 0
         for e in rows:
             const += float(e['Cin_ms']) + float(e['Cout_ms_ub']) + float(e['t_warm_ms']) + float(e['Ce_ms'])
             ce = float(e['Ce_ms'])
             off_ms = float(e['t_remaining_ms'])
             sum_rem += max(f * off_ms - ce, 0.0) + (1.0 - f) * off_ms
+            try:
+                sum_th += float(e.get('Th_ms') or 0.0)
+            except Exception:
+                sum_th += 0.0
             n += 1
-        return const + sum_rem + n * th_ms
+        return const + sum_rem + sum_th
 
     # Compute largest feasible f per measured cycle (global across K)
     # For a given cycle, coverage holds if f <= F_i (since total decreases with f).
@@ -287,8 +361,36 @@ def build_per_model_csv(model: str, b_in: float, b_out_hi: float, b_out_lo: floa
         ce = float(r.get('Ce_ms') or 0.0)
         seg_total_mib, off_mib = load_weight_split_mib(model, K, g)
         off_ms = mib_to_ms(off_mib, b_in)
-        # LB / UB hosted totals (Th fixed 1.2)
-        th = 1.2
+        # LB / UB hosted totals (Th fixed 0.5)
+        # Th per-group: either fixed 0.5ms or formula-based
+        if USE_HOST_DELTA_FORMULA:
+            # Select intercept per model
+            Th_intercept = HOST_C_MS
+            if USE_PER_MODEL_THOST:
+                Th_map = _load_T_host_map(KAPPA_MS_PER_MS)
+                Th_intercept = float((Th_map.get(model) if isinstance(Th_map, dict) else HOST_C_MS) or HOST_C_MS)
+            # Choose span source
+            src = (HOST_DELTA_SPAN_SOURCE or 'theory_cout').lower()
+            if src == 'theory_cin':
+                Uin_used_ms = cin_ms
+            elif src == 'measured_in':
+                Uin_used_ms = 0.0
+                try:
+                    segs = (r.get('group_segs') or '').split(',')
+                    segs = [s.strip() for s in segs if s.strip()]
+                    in_map = _load_in_span_map() or {}
+                    if 'to8' in (g or ''):
+                        last_seg = segs[-1] if segs else None
+                        Uin_used_ms = float(((in_map.get(model) or {}).get(last_seg)) or 0.0) if last_seg else 0.0
+                    else:
+                        Uin_used_ms = sum(float(((in_map.get(model) or {}).get(s)) or 0.0) for s in segs)
+                except Exception:
+                    Uin_used_ms = 0.0
+            else:  # default: theory_cout (use LB/fast D2H)
+                Uin_used_ms = cout_ms_hi
+            th = Th_intercept + KAPPA_MS_PER_MS * Uin_used_ms
+        else:
+            th = 0.5
         warm_mib = max(seg_total_mib - off_mib, 0.0)
         t_warm = mib_to_ms(warm_mib, b_in)
         t_over = max(off_ms - ce, 0.0)
@@ -316,12 +418,12 @@ def build_per_model_csv(model: str, b_in: float, b_out_hi: float, b_out_lo: floa
             't_overlapped_remaining_ms': round(t_over, 3),
             'Warm_MiB': round(warm_mib, 6),
             't_warm_ms': round(t_warm, 3),
-            'Th_ms': th,
+            'Th_ms': round(th, 3),
             'LB_ms_total_hosted': round(lb + th, 3),
             'UB_ms_total_hosted': round(ub + th, 3),
         })
     # Choose factor using combo_cycle_times coverage at 99%
-    f99, cov_rate, used_n, total_n, dropped = choose_factor_99(model, enriched, th_ms=1.2)
+    f99, cov_rate, used_n, total_n, dropped = choose_factor_99(model, enriched)
     for e in enriched:
         ce = float(e['Ce_ms'])
         off_ms = float(e['t_remaining_ms'])
@@ -364,7 +466,8 @@ def main() -> int:
     b_out2 = float(os.environ.get('B_OUT2', DEFAULT_B_OUT2))
     # Generate per-model CSVs
     for model, b_in in MODEL_H2D.items():
-        build_per_model_csv(model, b_in, b_out, b_out2)
+        use_b_in = _forced_val if (_forced_val is not None) else b_in
+        build_per_model_csv(model, use_b_in, b_out, b_out2)
     # Combine into a single CSV
     all_rows = []
     out_cols = None
