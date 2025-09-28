@@ -8,8 +8,18 @@
 - 使用 show_overlap_positions.py 的逐窗口事件解析方法
 - 提供真实准确的IN/OUT重叠计算，而非错误的"重叠=OUT时长"
 
-范例：python3 - << 'PY' import json, statistics as st, osSTRICT_INVOKE_WINDOW=1 SHIFT_POLICY=in_tail_or_out_head CLUSTER_GAP_MS=0.1 MAX_SHIFT_MS=12 SEARCH_TAIL_MS=12 SEARCH_HEAD_MS=6 MIN_URBpython3 - << 'PY'                                                                                   import json, statistics as st    USB_BUS=2 COUNT=20 INVOKE_GAP_MS=50 CAP_DUR=45 STRICT_INVOKE_WINDOW=1 SHIFT_POLICY=in_tail_or_out_head CLUSTER_GAP_MS=0.1 MIN_URB_BYTONLY_MODELS=densenet201_8seg_uniform_local python3 /home/10210/Desktop/OS/tools/collect_pure_times_from_results.py
-
+# Analyzer defaults when invoking analyze_usbmon_active.py:
+# - STRICT_INVOKE_WINDOW=1                 # strict invoke window as base
+# - SHIFT_POLICY=tail_last_BiC_guard_BoS   # tail align to last IN(C), then guard head by BoS
+# - SEARCH_TAIL_MS=40                      # tail-side search for last IN (ms)
+# - SEARCH_HEAD_MS=40                      # head-side search window for BoS guard (ms)
+# - EXTRA_HEAD_EXPAND_MS=10                # allow small head expand to include BoS
+# - MAX_SHIFT_MS=50                        # clamp total shift (ms)
+# - SPAN_STRICT_PAIR=1                     # span requires both S and C to lie within window (strict S..C)
+# - MIN_URB_BYTES=512                   # ignore tiny URBs when picking S/C for span
+# - CLUSTER_GAP_MS=0.1                     # IN C-cluster gap (ms) for hybrid IN intervals
+# 
+# Important: INVOKE_GAP_MS is ms. For sim, prefer 100–200 ms.
 """
 
 import os

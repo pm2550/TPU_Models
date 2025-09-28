@@ -18,7 +18,7 @@
 # - MIN_URB_BYTES=512                   # ignore tiny URBs when picking S/C for span
 # - CLUSTER_GAP_MS=0.1                     # IN C-cluster gap (ms) for hybrid IN intervals
 # 
-# Important: INVOKE_GAP_MS is ms. For sim, prefer 50–200 ms.
+# Important: INVOKE_GAP_MS is ms. For sim, prefer 100–200 ms.
 import os
 import sys
 import json
