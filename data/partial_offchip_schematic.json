@@ -6,7 +6,8 @@
       "wstream": 3.206,
       "compute": 0.568,
       "d2h": 0.06,
-      "input": 0.413
+      "input": 0.413,
+      "compute_tailfixed": 3.12
     },
     "fully": {
       "title": "Fully on-chip",

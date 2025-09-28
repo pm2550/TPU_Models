@@ -10,6 +10,36 @@ import math
 import json
 import sys
 import subprocess
+from typing import Optional
+
+def _measure_text_px(s: str, px: float, mono: bool = True) -> float:
+    """Best-effort text width measurement in pixels using Pillow if available.
+    Falls back to a crude estimate when Pillow or the font file is missing.
+    """
+    try:
+        from PIL import ImageFont
+        # Try a few common DejaVu Mono paths
+        candidates = [
+            'DejaVuSansMono.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+            '/usr/share/fonts/dejavu/DejaVuSansMono.ttf',
+        ]
+        font = None
+        for p in candidates:
+            try:
+                font = ImageFont.truetype(p, size=max(6, int(round(px))))
+                break
+            except Exception:
+                continue
+        if font is None:
+            # last resort default
+            font = ImageFont.load_default()
+        # getbbox returns (x0,y0,x1,y1)
+        bbox = font.getbbox(s)
+        return float(bbox[2] - bbox[0])
+    except Exception:
+        # Fallback: previous rough estimate
+        return len(s) * 7.8 * ((px + float(FONT_DELTA)) / 12.0)
 from pathlib import Path
 
 # Global font delta applied to all text sizes (in px)
@@ -20,12 +50,17 @@ def svg_rect(x, y, w, h, fill, stroke="#000", sw=1, rx=3, ry=3, opacity=1.0):
             f'rx="{rx}" ry="{ry}" fill="{fill}" fill-opacity="{opacity}" '
             f'stroke="{stroke}" stroke-width="{sw}" />')
 
-def svg_text(x, y, s, size=12, anchor='middle', weight='normal', family='DejaVu Sans, Arial'):
+def svg_text(x, y, s, size=12, anchor='middle', weight='normal', family='DejaVu Sans, Arial', text_length=None, length_adjust=None):
     # Apply global font delta
     final_size = max(6.0, float(size) + float(FONT_DELTA))
+    extra = ''
+    if text_length is not None:
+        extra += f' textLength="{float(text_length):.2f}"'
+        if length_adjust:
+            extra += f' lengthAdjust="{length_adjust}"'
     return (f'<text x="{x:.2f}" y="{y:.2f}" text-anchor="{anchor}" '
             f'font-family="{family}" font-size="{final_size}" '
-            f'font-weight="{weight}">{s}</text>')
+            f'font-weight="{weight}"{extra}>{s}</text>')
 
 def main():
     ap = argparse.ArgumentParser(description='USB/TPU partial off-chip schematic (SVG).')
@@ -59,6 +94,8 @@ def main():
     ap.add_argument('--font-delta', type=float, default=0.0, help='Increase all font sizes by this many px (e.g., 2.0 to go up one size)')
     ap.add_argument('--legend-gap-below', type=float, default=60.0, help='Extra vertical gap between the legend and the lanes (px)')
     ap.add_argument('--legend-gap-between', type=float, default=28.0, help='Horizontal gap between legend items (px)')
+    ap.add_argument('--legend-right-guard', type=float, default=4.0, help='Extra inset (px) applied to the last item of the bottom legend row to avoid right overflow')
+    ap.add_argument('--legend-debug', action='store_true', help='Print legend left/right edges for both rows')
     ap.add_argument('--legend-text-width-scale', type=float, default=1.12, help='Multiplier to text width estimate to avoid overlap (e.g., 1.12)')
     ap.add_argument('--legend-label-tail-gap', type=float, default=8.0, help='Extra pixels after each label to separate legend cards')
     ap.add_argument('--legend-row-gap', type=float, default=8.0, help='Vertical gap between legend rows (px)')
@@ -141,6 +178,13 @@ def main():
                 '--tick-left-step', str(args.tick_left_step),
                 '--tick-right-step', str(args.tick_right_step)
             ]
+            # Optional tail-fixed compute per dataset
+            if 'compute_tailfixed' in d and d['compute_tailfixed']:
+                child_argv += ['--compute-tailfixed-ms', str(d['compute_tailfixed'])]
+            if args.legend_debug:
+                child_argv += ['--legend-debug']
+            if args.legend_right_guard is not None:
+                child_argv += ['--legend-right-guard', str(args.legend_right_guard)]
             subprocess.run(child_argv, check=True)
             outputs.append(out_svg)
         print("\n".join(outputs))
@@ -333,14 +377,17 @@ def main():
     lane_label_px = float(args.lane_label_size) if args.lane_label_size is not None else float(legend_font_size)
     title_px = float(args.title_size) if args.title_size is not None else float(legend_font_size)
     tick_px = float(args.tick_font_size) if args.tick_font_size is not None else float(legend_font_size)
-    widths = [sw_w + label_gap + len(name)*7.8 * font_scale * tws + tail_gap for _c, name, _p in items]
+    # Measure legend text width more accurately to reduce SVG↔PDF drift.
+    text_ws = [_measure_text_px(name, legend_font_size) for _c, name, _p in items]
+    widths = [sw_w + label_gap + text_ws[idx] + tail_gap for idx, (_c, name, _p) in enumerate(items)]
     # Top row: D2H, Compute, Off-chip; Bottom row: On-chip, Input
     # (indices correspond to the 'items' array above)
     row1_idx = [2,1,0]
     row2_idx = [3,4]
     row1_w = sum(widths[i] for i in row1_idx) + (len(row1_idx)-1)*gap_between
     row2_w = sum(widths[i] for i in row2_idx) + (len(row2_idx)-1)*gap_between if row2_idx else 0.0
-    legend_w = max(row1_w, row2_w)
+    # Target both rows to have the same total width as row1 to achieve left+right alignment
+    legend_w = row1_w
 
     # Ensure the canvas is wide enough to fit both axis and legend (with margins)
     min_canvas_w = legend_w + 40.0  # ~20px margins on both sides
@@ -373,11 +420,13 @@ def main():
     # Raise legend higher (further from bars)
     # Two rows of legend items, horizontally centered to the bars/axis area
     row_gap = max(0.0, float(args.legend_row_gap))
-    # Row 1 (center to the visible axis span rather than full canvas)
+    # Row positions: align rows to the same left edge so the two rows are vertically aligned.
+    # Use the visible axis span center to compute the common left edge based on the widest row.
     axis_left_x = pad_l
     axis_right_x = pad_l + axis_visual_width
     axis_center_x = (axis_left_x + axis_right_x) / 2.0
-    lx1 = axis_center_x - row1_w/2.0
+    legend_left = axis_center_x - legend_w/2.0
+    lx1 = legend_left
     xc = lx1
     for i in row1_idx:
         fill_color, name, pattern_id = items[i]
@@ -386,22 +435,61 @@ def main():
         if pattern_id:
             out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pattern_id})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
         out.append(svg_text(xc + sw_w + label_gap, legend_y, name, anchor='start', size=legend_font_size, family=mono_family))
-        # Advance by swatch + label + extra gap. Scale label width by current font.
-        xc += sw_w + label_gap + len(name)*7.8 * font_scale * tws + tail_gap + gap_between
+        # Advance using precomputed width to avoid drift, plus row gap
+        xc += widths[i] + gap_between
     # Row 2
     if row2_idx:
         legend_y2 = legend_y + sw_h + row_gap
-        lx2 = axis_center_x - row2_w/2.0
-        xc = lx2
-        for i in row2_idx:
-            fill_color, name, pattern_id = items[i]
+        lx2 = legend_left
+        r2_count = len(row2_idx)
+        if r2_count == 2:
+            i0, i1 = row2_idx[0], row2_idx[1]
+            # 首个从左边界开始，最后一个强制右对齐到 legend_left + legend_w
+            x0 = lx2
+            # 额外留出一点右侧inset，避免估算误差造成越界
+            right_guard = max(0.0, float(args.legend_right_guard))
+            last_total_w = widths[i1]
+            x1 = legend_left + legend_w - last_total_w - right_guard
+            # 绘制第一个
             rect_y = legend_y2 - sw_h + 2
-            out.append(svg_rect(xc, rect_y, sw_w, sw_h, fill_color, sw=0.8, rx=2, ry=2, opacity=0.95))
-            if pattern_id:
-                out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pattern_id})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
-            out.append(svg_text(xc + sw_w + label_gap, legend_y2, name, anchor='start', size=legend_font_size, family=mono_family))
-            # Advance by swatch + label + extra gap. Scale label width by current font.
-            xc += sw_w + label_gap + len(name)*7.8 * font_scale * tws + tail_gap + gap_between
+            c, name, pid = items[i0]
+            out.append(svg_rect(x0, rect_y, sw_w, sw_h, c, sw=0.8, rx=2, ry=2, opacity=0.95))
+            if pid:
+                out.append(svg_rect(x0, rect_y, sw_w, sw_h, f'url(#{pid})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
+            out.append(svg_text(x0 + sw_w + label_gap, legend_y2, name, anchor='start', size=legend_font_size, family=mono_family))
+            # 绘制第二个（右对齐）
+            c, name, pid = items[i1]
+            out.append(svg_rect(x1, rect_y, sw_w, sw_h, c, sw=0.8, rx=2, ry=2, opacity=0.95))
+            if pid:
+                out.append(svg_rect(x1, rect_y, sw_w, sw_h, f'url(#{pid})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
+            out.append(svg_text(x1 + sw_w + label_gap, legend_y2, name, anchor='start', size=legend_font_size, family=mono_family))
+            row2_right = x1 + last_total_w
+        else:
+            # 回退到等比调整间距的通用逻辑
+            xc = lx2
+            r2_items_w = sum(widths[i] for i in row2_idx)
+            r2_base_total = r2_items_w + (r2_count - 1) * gap_between if r2_count > 0 else 0.0
+            delta = legend_w - r2_base_total
+            r2_gap = gap_between + (delta / (r2_count - 1)) if r2_count > 1 else gap_between
+            r2_gap = max(0.0, r2_gap)
+            for i in row2_idx:
+                fill_color, name, pattern_id = items[i]
+                rect_y = legend_y2 - sw_h + 2
+                out.append(svg_rect(xc, rect_y, sw_w, sw_h, fill_color, sw=0.8, rx=2, ry=2, opacity=0.95))
+                if pattern_id:
+                    out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pattern_id})', stroke='none', sw=0, rx=2, ry=2, opacity=1.0))
+                out.append(svg_text(xc + sw_w + label_gap, legend_y2, name, anchor='start', size=legend_font_size, family=mono_family))
+                xc += widths[i] + r2_gap
+            row2_right = lx2 + r2_items_w + (r2_count - 1) * r2_gap
+    else:
+        row2_right = legend_left
+
+    # Debug print legend edges if requested
+    if args.legend_debug:
+        row1_left = legend_left
+        row1_right = legend_left + row1_w
+        print(f"legend row1: left={row1_left:.2f}, right={row1_right:.2f}")
+        print(f"legend row2: left={legend_left:.2f}, right={row2_right:.2f}, diff(right2-right1)={row2_right-row1_right:.2f}")
 
     # Lane labels will be drawn per copy
 

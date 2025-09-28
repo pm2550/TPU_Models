@@ -19,10 +19,15 @@ Usage:
 """
 from pathlib import Path
 import argparse
+from decimal import Decimal, ROUND_HALF_UP
 
 
 def fmt_ms(v: float) -> str:
-    return f"{v:.3f}"
+    try:
+        q = Decimal(str(v)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        return f"{q:.2f}"
+    except Exception:
+        return f"{v:.2f}"
 
 
 def svg_rect(x, y, w, h, fill, stroke="#000", sw=1, rx=2, ry=2, opacity=1.0):
@@ -41,6 +46,15 @@ def svg_text(x, y, s, size=12, anchor='middle', weight='normal', family='DejaVu 
             f'font-family="{family}" font-size="{size}" '
             f'font-weight="{weight}">{s}</text>')
 
+def svg_label_value_line(x, y, label, value, size=12, gap_px=12.0, family='DejaVu Sans, Arial'):
+    # Render label and value in one line with a fixed pixel gap between them
+    return (
+        f'<text x="{x:.2f}" y="{y:.2f}" text-anchor="start" '
+        f'font-family="{family}" font-size="{size}">'
+        f'<tspan>{label}</tspan><tspan dx="{gap_px}">{value}</tspan>'
+        f'</text>'
+    )
+
 
 def main():
     ap = argparse.ArgumentParser(description='Draw stacked bars for seg1..4 (SVG).')
@@ -48,30 +62,39 @@ def main():
     ap.add_argument('--height', type=float, default=440.0, help='Figure height in px')
     ap.add_argument('--include-full', action='store_true', help='Also draw the full aggregate bar to the right of seg4')
     # Font sizes (px)
-    ap.add_argument('--tick-font-size', type=float, default=16.0, help='Y-axis tick label size')
+    ap.add_argument('--tick-font-size', type=float, default=18.0, help='Y-axis tick label size')
     ap.add_argument('--seg-label-font-size', type=float, default=16.0, help='Per-segment label text size (name/value)')
-    ap.add_argument('--x-label-font-size', type=float, default=16.0, help='X-axis (seg names) label size')
+    ap.add_argument('--x-label-font-size', type=float, default=18.0, help='X-axis (seg names) label size')
     ap.add_argument('--legend-font-size', type=float, default=19.5, help='Legend text size')
     ap.add_argument('--legend-swatch-height', type=float, default=26.0, help='Legend swatch height (px)')
     ap.add_argument('--legend-swatch-width', type=float, default=28.0, help='Legend swatch width (px)')
+    ap.add_argument('--min-segment-ms', type=float, default=0.10, help='Minimum visible height (ms) for any non-zero segment')
     ap.add_argument('--y-unit', type=str, default='ms', help='Y-axis unit text (e.g., ms)')
     ap.add_argument('--y-unit-dy', type=float, default=8.0, help='Additional downward offset for Y-axis unit label (px)')
+    ap.add_argument('--y-min-max', type=float, default=None, help='Minimum Y-axis maximum (e.g., 7 to cap ticks at 0..7)')
+    ap.add_argument('--y-headroom', type=float, default=0.2, help='Extra headroom above Y max (axis units)')
     # Data overrides
     ap.add_argument('--d2h-override', type=float, default=None, help='If set, use this D2H value for all segs (ms)')
     # Spacing controls
     ap.add_argument('--label-min-sep', type=float, default=32.0, help='Minimum vertical separation between labels in one bar (px)')
     ap.add_argument('--legend-gap-between', type=float, default=24.0, help='Horizontal gap between legend cards (px)')
     ap.add_argument('--legend-y', type=float, default=26.0, help='Legend baseline Y position (px); auto-clamped to avoid clipping')
-    ap.add_argument('--legend-top-pad', type=float, default=2.0, help='Minimum top padding between legend swatch and SVG top (px)')
-    ap.add_argument('--bar-gap', type=float, default=84.0, help='Horizontal gap between bars (px)')
+    ap.add_argument('--legend-top-pad', type=float, default=0.0, help='Minimum top padding between legend swatch and SVG top (px)')
+    ap.add_argument('--bar-gap', type=float, default=120.0, help='Horizontal gap between bars (px)')
     args = ap.parse_args()
 
     # Data
+    input_by_seg = {
+        'seg1': 0.414,
+        'seg2': 0.057,
+        'seg3': 0.041,
+        'seg4': 0.040,
+    }
     segs = [
-        dict(name='seg1', invoke=6.998, d2h=0.318, h2d=3.740, comp=2.522),
-        dict(name='seg2', invoke=4.504, d2h=0.128, h2d=3.776, comp=0.351),
-        dict(name='seg3', invoke=4.383, d2h=0.067, h2d=3.831, comp=0.303),
-        dict(name='seg4', invoke=4.885, d2h=0.060, h2d=4.619, comp=0.051),
+        dict(name='seg1', invoke=6.998, d2h=0.318, h2d=3.740, comp=2.522, input=input_by_seg['seg1']),
+        dict(name='seg2', invoke=4.504, d2h=0.128, h2d=3.776, comp=0.351, input=input_by_seg['seg2']),
+        dict(name='seg3', invoke=4.383, d2h=0.067, h2d=3.831, comp=0.303, input=input_by_seg['seg3']),
+        dict(name='seg4', invoke=4.885, d2h=0.060, h2d=4.619, comp=0.051, input=input_by_seg['seg4']),
     ]
     if args.include_full:
         segs.append(dict(name='full', invoke=17.590, d2h=0.060, h2d=14.161, comp=3.120))
@@ -84,7 +107,8 @@ def main():
         s['host'] = max(0.0, s['invoke'] - (s['h2d'] + s['comp'] + s['d2h']))
 
     # Colors and patterns (match previous schematic):
-    col_h2d = '#1f77b4'   # blue + +45° hatch
+    col_h2d = '#1f77b4'   # blue + +45° hatch (Weight streaming)
+    col_input = '#9ecae1' # light blue for Input streaming
     col_comp = '#7f7f7f'  # gray (pure)
     col_d2h = '#d62728'   # red + -45° hatch
     col_host = '#9467bd'  # purple + horizontal hatch
@@ -102,23 +126,53 @@ def main():
 
     # Scale: y px per ms
     y_max = max(s['h2d'] + s['comp'] + s['d2h'] + s['host'] for s in segs)
-    y_max = max(y_max, 5.0)
+    # Apply user-provided minimum Y-axis maximum if set; else keep >=5
+    if args.y_min_max is not None:
+        try:
+            y_min_max = float(args.y_min_max)
+        except Exception:
+            y_min_max = None
+        if y_min_max is not None:
+            y_max = max(y_max, y_min_max)
+    else:
+        y_max = max(y_max, 5.0)
+    # Add headroom so bars don't touch the top (keeps last tick if < next integer)
+    try:
+        y_max += max(0.0, float(args.y_headroom))
+    except Exception:
+        pass
     y_scale = (total_h - pad_t - pad_b) / y_max
-
     # Ensure canvas is wide enough to fully contain the legend cards + margins
-    # and the right-side labels of the last bar (avoid clipping like seg4 Compute)
-    # Estimate legend width using configured legend sizes to avoid overlap/cropping
-    legend_items = [
-        ('H2D'), ('Compute'), ('D2H'), ('Host(pre/post)')
-    ]
+    # and the right-side labels of the last bar (avoid clipping). Legend will be
+    # rendered on two rows: top three short, bottom two long. For width
+    # estimation, take the max row width.
     legend_font = float(args.legend_font_size)
     legend_label_gap = 7.0 * (legend_font / 12.0)
     legend_gap_between = float(args.legend_gap_between)
     legend_swatch_w = float(args.legend_swatch_width)
     char_px = 7.8 * (legend_font / 12.0)
-    widths_est = [legend_swatch_w + legend_label_gap + len(name)*char_px for name in legend_items]
-    legend_w_est = sum(widths_est) + (len(legend_items)-1) * legend_gap_between
+    legend_row1_names = ['Compute', 'D2H', 'Host(pre/post)']
+    legend_row2_names = ['Input streaming (IS)', 'Weight streaming (WS)']
+    row1_w = sum(legend_swatch_w + legend_label_gap + len(name)*char_px for name in legend_row1_names)              + (len(legend_row1_names)-1) * legend_gap_between
+    row2_w = sum(legend_swatch_w + legend_label_gap + len(name)*char_px for name in legend_row2_names)              + (len(legend_row2_names)-1) * legend_gap_between
+    legend_w_est = max(row1_w, row2_w)
     min_canvas_w = legend_w_est + 40.0  # ~20px margins on both sides
+    # Also reserve vertical space so the two-row legend never overlaps bars.
+    # If not enough top padding, push bars down and proportionally increase figure height.
+    legend_top_pad = max(0.0, float(args.legend_top_pad))
+    sw_h = float(args.legend_swatch_height)
+    # Baseline Y for top row; clamp to avoid clipping at the very top
+    legend_y_base = max(legend_top_pad + sw_h, float(args.legend_y))
+    row_gap = max(8.0, sw_h * 0.25)
+    y_row2 = legend_y_base + sw_h + row_gap
+    rect_y2 = y_row2 - sw_h + legend_top_pad
+    legend_block_bottom = max(rect_y2 + sw_h, y_row2)
+    need_pad_top = legend_block_bottom + 28.0  # keep a larger gap below legend
+    if pad_t < need_pad_top:
+        extra = need_pad_top - pad_t
+        pad_t += extra
+        total_h += extra
+        y_scale = (total_h - pad_t - pad_b) / y_max
 
     # Also account for the rightmost data labels next to the last bar
     n = len(segs)
@@ -127,14 +181,24 @@ def main():
         label_x = last_bx + bar_w + 8.0
         lbl_font = float(args.seg_label_font_size)
         lbl_char_px = 7.8 * (lbl_font / 12.0)
-        # Estimate the widest single line among names and numeric labels
-        name_candidates = ['Compute', 'H2D', 'D2H', 'Host']
-        max_num_len = 0
+        # Estimate the widest combined line: "label + gap + number" among all labels/segments
+        def comb_len(name, val):
+            return len(name) + 1 + len(val)
+        max_comb = 0
         for s in segs:
-            max_num_len = max(max_num_len, len(fmt_ms(s['h2d'])), len(fmt_ms(s['comp'])), len(fmt_ms(s['d2h'])), len(fmt_ms(s['host'])))
-        max_name_len = max(len(nm) for nm in name_candidates)
-        max_line_len = max(max_name_len, max_num_len)
-        right_labels_w = max_line_len * lbl_char_px + 16.0  # +margin
+            in_ms = float(s.get('input', 0.0))
+            weight_ms = max(0.0, float(s['h2d']) - in_ms)
+            pairs = [
+                ('WS', fmt_ms(weight_ms)),
+                ('IS', fmt_ms(in_ms)),
+                ('Compute', fmt_ms(s['comp'])),
+                ('D2H', fmt_ms(s['d2h'])),
+                ('Host', fmt_ms(s['host'])),
+            ]
+            for nm, vv in pairs:
+                max_comb = max(max_comb, comb_len(nm, vv))
+        # Leave a bit of right margin
+        right_labels_w = max_comb * lbl_char_px + 16.0  # +margin
         min_canvas_w = max(min_canvas_w, label_x + right_labels_w)
     if total_w < min_canvas_w:
         total_w = min_canvas_w
@@ -163,6 +227,11 @@ def main():
         '<rect width="6" height="6" fill="none" />'
         '<path d="M 0 3 L 6 3" stroke="#000000" stroke-width="1.2" opacity="0.6" />'
         '</pattern>'
+        # Input streaming hatch (vertical)
+        '<pattern id="inputHatch" patternUnits="userSpaceOnUse" width="6" height="6">'
+        '<rect width="6" height="6" fill="none" />'
+        '<path d="M 3 0 L 3 6" stroke="#000000" stroke-width="1.1" opacity="0.6" />'
+        '</pattern>'
         '</defs>'
     )
 
@@ -181,8 +250,8 @@ def main():
 
     # Y ticks
     ticks = []
-    # choose step ~1ms or 2ms depending on max
-    step = 1.0 if y_max <= 6 else 2.0
+    # use 1 ms step for denser ticks
+    step = 1.0
     t = 0.0
     while t <= y_max + 1e-6:
         ticks.append(t)
@@ -222,25 +291,42 @@ def main():
         by = y0
         # Collect label preferred positions and metadata for this bar
         labels = []  # list of (segment_name, value_str, pref_y)
-        # Stack order: H2D at bottom, then Compute, then D2H on top
-        # H2D
+        # Stack order: Weight (bottom) -> Input -> Compute -> D2H -> Host
         zero_slot_px = 14.0  # virtual slot height used to position labels when segment value == 0
-        h = s['h2d'] * y_scale
+        in_ms = float(s.get('input', 0.0))
+        weight_ms = max(0.0, float(s['h2d']) - in_ms)
+        # Apply minimum visible size for non-zero segments
+        min_ms = max(0.0, float(args.min_segment_ms))
+        disp_weight_ms = weight_ms if weight_ms == 0 else max(weight_ms, min_ms)
+        h = disp_weight_ms * y_scale
         if h > 0:
             out.append(svg_rect(bx, by - h, bar_w, h, col_h2d, opacity=0.95))
             out.append(svg_rect(bx, by - h, bar_w, h, 'url(#h2dHatch)', stroke="none", sw=0, opacity=1.0))
         pref_y = by - ((h/2) if h > 0 else (zero_slot_px/2))
-        labels.append(("H2D", fmt_ms(s['h2d']), pref_y))
+        labels.append(("WS", fmt_ms(weight_ms), pref_y))
+        by -= h
+        # Input streaming
+        disp_in_ms = in_ms if in_ms == 0 else max(in_ms, min_ms)
+        h = disp_in_ms * y_scale
+        if h > 0:
+            out.append(svg_rect(bx, by - h, bar_w, h, col_input, opacity=0.95))
+            out.append(svg_rect(bx, by - h, bar_w, h, 'url(#inputHatch)', stroke="none", sw=0, opacity=1.0))
+        pref_y = by - ((h/2) if h > 0 else (zero_slot_px/2))
+        labels.append(("IS", fmt_ms(in_ms), pref_y))
         by -= h
         # Compute
-        h = s['comp'] * y_scale
+        comp_ms = float(s['comp'])
+        disp_comp_ms = comp_ms if comp_ms == 0 else max(comp_ms, min_ms)
+        h = disp_comp_ms * y_scale
         if h > 0:
             out.append(svg_rect(bx, by - h, bar_w, h, col_comp, opacity=0.65))
         pref_y = by - ((h/2) if h > 0 else (zero_slot_px/2))
         labels.append(("Compute", fmt_ms(s['comp']), pref_y))
         by -= h
         # D2H
-        h = s['d2h'] * y_scale
+        d2h_ms = float(s['d2h'])
+        disp_d2h_ms = d2h_ms if d2h_ms == 0 else max(d2h_ms, min_ms)
+        h = disp_d2h_ms * y_scale
         if h > 0:
             out.append(svg_rect(bx, by - h, bar_w, h, col_d2h, opacity=0.95))
             out.append(svg_rect(bx, by - h, bar_w, h, 'url(#d2hHatch)', stroke="none", sw=0, opacity=1.0))
@@ -249,7 +335,9 @@ def main():
         labels.append(("D2H", fmt_ms(s['d2h']), pref_y))
         by -= h
         # Host (pre/post combined as one segment)
-        h = s['host'] * y_scale
+        host_ms = float(s['host'])
+        disp_host_ms = host_ms if host_ms == 0 else max(host_ms, min_ms)
+        h = disp_host_ms * y_scale
         if h > 0:
             out.append(svg_rect(bx, by - h, bar_w, h, col_host, opacity=0.75))
             out.append(svg_rect(bx, by - h, bar_w, h, 'url(#hostHatch)', stroke="none", sw=0, opacity=1.0))
@@ -273,16 +361,16 @@ def main():
         assigned_by_index = [0.0] * len(preferred)
         for i, y_pos in zip(order_top_to_bottom, assigned_sorted):
             assigned_by_index[i] = y_pos
-        # Draw labels in bottom->top stack order
+        # Draw labels in bottom->top stack order, with fixed pixel gap between label and value
         for idx, (seg_t, seg_v, _p) in enumerate(labels_stack):
             ly = assigned_by_index[idx]
-            out.append(svg_text(bx + bar_w + 8, ly - 12.0, seg_t, anchor='start', size=args.seg_label_font_size))
-            out.append(svg_text(bx + bar_w + 8, ly + 2.0, seg_v, anchor='start', size=args.seg_label_font_size))
+            base_x = bx + bar_w + 8
+            y_text = ly - 5.0
+            out.append(svg_label_value_line(base_x, y_text, seg_t, seg_v, size=args.seg_label_font_size, gap_px=12.0))
 
         # X label
         out.append(svg_text(bx + bar_w/2, y0 + 22, s['name'].replace('seg','seg '), size=args.x_label_font_size))
-
-    # Legend (top) — fixed safe position to avoid clipping when bars move
+    # Legend (top, two rows) — fixed safe position to avoid clipping when bars move
     legend_top_pad = max(0.0, float(args.legend_top_pad))
     legend_y = max(legend_top_pad + args.legend_swatch_height, float(args.legend_y))
     mono_family = 'DejaVu Sans Mono, Menlo, Consolas, monospace'
@@ -291,28 +379,49 @@ def main():
     label_font = float(args.legend_font_size)
     label_gap = 7.0 * (label_font / 12.0)
     gap_between = float(args.legend_gap_between)
-    items = [
-        (col_h2d, 'H2D', 'h2dHatch'),
+    # Two rows: top three short, bottom two long. Show abbreviations in legend text.
+    row1 = [
         (col_comp, 'Compute', None),
         (col_d2h, 'D2H', 'd2hHatch'),
         (col_host, 'Host(pre/post)', 'hostHatch'),
     ]
+    row2 = [
+        (col_input, 'Input streaming (IS)', 'inputHatch'),
+        (col_h2d, 'Weight streaming (WS)', 'h2dHatch'),
+    ]
     char_px = 7.8 * (label_font / 12.0)
-    widths = [sw_w + label_gap + len(name) * char_px for _c, name, _p in items]
-    legend_w = sum(widths) + (len(items)-1)*gap_between
-    lx = (total_w - legend_w)/2.0
-    xc = lx
-    for (c, name, pid), w in zip(items, widths):
-        rect_y = legend_y - sw_h + legend_top_pad
-        if rect_y < 0:
-            # push legend down if swatch would clip
-            dy = -rect_y
-            legend_y += dy
-            rect_y = legend_y - sw_h + legend_top_pad
-        out.append(svg_rect(xc, rect_y, sw_w, sw_h, c, sw=0.8, rx=2, ry=2, opacity=0.95))
+    widths1 = [sw_w + label_gap + len(name) * char_px for _c, name, _p in row1]
+    widths2 = [sw_w + label_gap + len(name) * char_px for _c, name, _p in row2]
+    legend_w1 = sum(widths1) + (len(row1)-1)*gap_between
+    legend_w2 = sum(widths2) + (len(row2)-1)*gap_between
+    # Center each row separately
+    lx1 = (total_w - legend_w1)/2.0
+    lx2 = (total_w - legend_w2)/2.0
+    # Draw row1 at legend_y, row2 below with a small gap
+    rect_y1 = legend_y - sw_h + legend_top_pad
+    if rect_y1 < 0:
+        dy = -rect_y1
+        legend_y += dy
+        rect_y1 = legend_y - sw_h + legend_top_pad
+    row_gap = max(8.0, sw_h * 0.25)
+    y_row1 = legend_y
+    y_row2 = legend_y + sw_h + row_gap
+    rect_y2 = y_row2 - sw_h + legend_top_pad
+    # Render row1
+    xc = lx1
+    for (c, name, pid), w in zip(row1, widths1):
+        out.append(svg_rect(xc, rect_y1, sw_w, sw_h, c, sw=0.8, rx=2, ry=2, opacity=0.95))
         if pid:
-            out.append(svg_rect(xc, rect_y, sw_w, sw_h, f'url(#{pid})', stroke="none", sw=0, rx=2, ry=2, opacity=1.0))
-        out.append(svg_text(xc + sw_w + label_gap, legend_y, name, anchor='start', size=label_font, family=mono_family))
+            out.append(svg_rect(xc, rect_y1, sw_w, sw_h, f'url(#{pid})', stroke="none", sw=0, rx=2, ry=2, opacity=1.0))
+        out.append(svg_text(xc + sw_w + label_gap, y_row1, name, anchor='start', size=label_font, family=mono_family))
+        xc += w + gap_between
+    # Render row2
+    xc = lx2
+    for (c, name, pid), w in zip(row2, widths2):
+        out.append(svg_rect(xc, rect_y2, sw_w, sw_h, c, sw=0.8, rx=2, ry=2, opacity=0.95))
+        if pid:
+            out.append(svg_rect(xc, rect_y2, sw_w, sw_h, f'url(#{pid})', stroke="none", sw=0, rx=2, ry=2, opacity=1.0))
+        out.append(svg_text(xc + sw_w + label_gap, y_row2, name, anchor='start', size=label_font, family=mono_family))
         xc += w + gap_between
 
     out.append('</svg>')

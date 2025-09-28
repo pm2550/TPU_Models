@@ -38,9 +38,9 @@ def _fenv(name: str, default: float) -> float:
 # Otherwise, use hardcoded defaults.
 USE_CODE_DEFAULTS = os.environ.get('USE_CODE_DEFAULTS', '1').lower() not in ('0', 'false', 'no')
 # Hardcoded defaults (MiB/s)
-DEFAULT_B_IN = 325
+DEFAULT_B_IN = 330
 DEFAULT_B_OUT = 87.0
-DEFAULT_B_IN2 = 325  # lower variant for H2D
+DEFAULT_B_IN2 = 330  # lower variant for H2D
 DEFAULT_B_OUT2 = 35.0   # lower variant for D2H (assumption; override via env)
 
 
