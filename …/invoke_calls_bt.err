@@ -1,0 +1,2 @@
+create_probe_event: open(/sys/kernel/debug/tracing/uprobe_events): No such file or directory
+ERROR: Error attaching probe: uprobe:/lib/aarch64-linux-gnu/libusb-1.0.so.0:libusb_control_transfer

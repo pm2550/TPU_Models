@@ -29,11 +29,21 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.ticker import MultipleLocator
 
 BASE = Path('/home/10210/Desktop/OS')
 SWEEP_CSV = BASE / 'five_models/results/theory_sweeps/all_models.csv'
 MEAS_CSV = BASE / 'five_models/results/combo_cycle_times.csv'
 OUT_DIR = BASE / 'five_models/results/theory_sweeps/plots'
+
+# Display names for model prefixes in plot titles
+DISPLAY_NAMES = {
+    'resnet50': 'ResNet-50',
+    'inceptionv3': 'InceptionV3',
+    'resnet101': 'ResNet-101',
+    'densenet201': 'DenseNet-201',
+    'xception': 'Xception',
+}
 
 # Outlier filtering configuration (must match run_model_theory_sweeps.py)
 MAD_K = 3.0  # default |x - median| <= MAD_K * (1.4826 * MAD)
@@ -51,6 +61,11 @@ def parse_args() -> argparse.Namespace:
                     help='Outlier filter mode for input points (default: mad)')
     ap.add_argument('--mad-k', type=float, default=MAD_K, help='MAD filter k (default: 5.0)')
     ap.add_argument('--iqr-k', type=float, default=IQR_K, help='IQR fence k (default: 1.5)')
+    # Expected UB line visibility (default: hidden)
+    ap.add_argument('--show-expected', dest='show_expected', action='store_true',
+                    help='Show yellow Expected UB line (and legend entry)')
+    ap.add_argument('--hide-expected', dest='show_expected', action='store_false', default=False,
+                    help='Hide yellow Expected UB line (default)')
     return ap.parse_args()
 
 
@@ -205,6 +220,9 @@ def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp, 
         'sev_Exp_sum_ratio': 0.0,
         'sev_Exp_sum_ms': 0.0,
         'sev_Exp_count': 0,
+        'sev_below_LB_sum_ratio': 0.0,
+        'sev_below_LB_sum_ms': 0.0,
+        'sev_below_LB_count': 0,
     }
     per_k = []
     for K in Ks:
@@ -229,12 +247,18 @@ def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp, 
         sev_UB_count = 0
         sev_Exp_sum_ratio = sev_Exp_sum_ms = 0.0
         sev_Exp_count = 0
+        sev_below_LB_sum_ratio = sev_below_LB_sum_ms = 0.0
+        sev_below_LB_count = 0
         for t in arr_in:
             # coverage wrt [LB, UB]
             if lo <= t <= hi:
                 within_LB_UB += 1
             elif t < lo:
                 below_LB += 1
+                if lo > 0:
+                    sev_below_LB_sum_ratio += (lo - t) / lo
+                sev_below_LB_sum_ms += (lo - t)
+                sev_below_LB_count += 1
             else:  # t > hi
                 above_UB += 1
                 if hi > 0:
@@ -265,6 +289,9 @@ def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp, 
         agg['sev_Exp_sum_ratio'] += sev_Exp_sum_ratio
         agg['sev_Exp_sum_ms'] += sev_Exp_sum_ms
         agg['sev_Exp_count'] += sev_Exp_count
+        agg['sev_below_LB_sum_ratio'] += sev_below_LB_sum_ratio
+        agg['sev_below_LB_sum_ms'] += sev_below_LB_sum_ms
+        agg['sev_below_LB_count'] += sev_below_LB_count
         per_k.append({
             'model': model,
             'K': K,
@@ -276,6 +303,9 @@ def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp, 
             'violation_below_LB_rate': (below_LB / n_total) if n_total else 0.0,
             'sev_above_UB_ratio_avg': (sev_UB_sum_ratio / sev_UB_count) if sev_UB_count else 0.0,
             'sev_above_Exp_ratio_avg': (sev_Exp_sum_ratio / sev_Exp_count) if sev_Exp_count else 0.0,
+            'sev_below_LB_ratio_avg': (sev_below_LB_sum_ratio / sev_below_LB_count) if sev_below_LB_count else 0.0,
+            'sev_overall_LB_UB_ratio_avg': ((sev_UB_sum_ratio + sev_below_LB_sum_ratio) / (sev_UB_count + sev_below_LB_count)) if (sev_UB_count + sev_below_LB_count) else 0.0,
+            'sev_overall_LB_Exp_ratio_avg': ((sev_Exp_sum_ratio + sev_below_LB_sum_ratio) / (sev_Exp_count + sev_below_LB_count)) if (sev_Exp_count + sev_below_LB_count) else 0.0,
         })
     # Aggregate metrics
     N = agg['n_total']
@@ -289,12 +319,16 @@ def compute_metrics_for_model(model: str, Ks: list[int], measured, lb, ub, exp, 
         'violation_below_LB_rate': (agg['below_LB'] / N) if N else 0.0,
         'sev_above_UB_ratio_avg': (agg['sev_UB_sum_ratio'] / agg['sev_UB_count']) if agg['sev_UB_count'] else 0.0,
         'sev_above_Exp_ratio_avg': (agg['sev_Exp_sum_ratio'] / agg['sev_Exp_count']) if agg['sev_Exp_count'] else 0.0,
+        'sev_below_LB_ratio_avg': (agg['sev_below_LB_sum_ratio'] / agg['sev_below_LB_count']) if agg['sev_below_LB_count'] else 0.0,
+        'sev_overall_LB_UB_ratio_avg': ((agg['sev_UB_sum_ratio'] + agg['sev_below_LB_sum_ratio']) / (agg['sev_UB_count'] + agg['sev_below_LB_count'])) if (agg['sev_UB_count'] + agg['sev_below_LB_count']) else 0.0,
+        'sev_overall_LB_Exp_ratio_avg': ((agg['sev_Exp_sum_ratio'] + agg['sev_below_LB_sum_ratio']) / (agg['sev_Exp_count'] + agg['sev_below_LB_count'])) if (agg['sev_Exp_count'] + agg['sev_below_LB_count']) else 0.0,
     }
     return model_metrics, per_k
 
 
-def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir: Path, whis=(5, 95), *, mode: str, mad_k: float, iqr_k: float, f_expected: float | None = None):
+def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir: Path, whis=(5, 95), *, mode: str, mad_k: float, iqr_k: float, f_expected: float | None = None, show_expected: bool = False):
     short = model.split('_')[0]
+    disp_name = DISPLAY_NAMES.get(short.lower(), short)
     # Prepare data for K=2..8 (skip empty groups to avoid matplotlib issue)
     xs = []
     data = []
@@ -317,7 +351,16 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
     if not data:
         return None
 
-    fig, ax = plt.subplots(figsize=(8, 4.8), dpi=140)
+    # Use a 4:3 aspect ratio for the figure and enable constrained layout
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=140, constrained_layout=True)
+    # Bump all font sizes by +2 points (title, labels, ticks, legends)
+    try:
+        base_fs = float(matplotlib.rcParams.get('font.size', 10))
+    except Exception:
+        base_fs = 10.0
+    big_fs = base_fs + 8.0  # 再放大两号（总+8pt）
+    label_fs = big_fs + 2.0  # 仅坐标轴标签再放大两号
+    tick_fs = big_fs + 2.0   # 刻度文字再放大两号
     bp = ax.boxplot(
         data,
         positions=list(range(len(xs))),
@@ -356,22 +399,25 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
     def y_for(series):
         return [series.get((model, pos_to_K[i]), math.nan) for i in pos]
     # We already collected y_* arrays in the same order; use those
-    ax.plot(pos, y_lb, '-o', color='green', linewidth=1.8, markersize=3, label='LB')
-    label_exp = 'Expected UB'
-    try:
-        if f_expected is not None and math.isfinite(float(f_expected)):
-            label_exp = f'Expected UB (f={float(f_expected):.2f})'
-    except Exception:
-        pass
-    ax.plot(pos, y_exp, '-o', color='gold', linewidth=1.8, markersize=3, label=label_exp)
-    ax.plot(pos, y_ub, '-o', color='red', linewidth=1.8, markersize=3, label='UB')
+    ax.plot(pos, y_lb, '-o', color='green', linewidth=1.8, markersize=6, label='LB')
+    if show_expected:
+        label_exp = 'Expected UB'
+        try:
+            if f_expected is not None and math.isfinite(float(f_expected)):
+                label_exp = f'Expected UB (f={float(f_expected):.2f})'
+        except Exception:
+            pass
+        ax.plot(pos, y_exp, '-o', color='gold', linewidth=1.8, markersize=3, label=label_exp)
+    ax.plot(pos, y_ub, '-o', color='red', linewidth=1.8, markersize=6, label='UB')
 
     # X-axis labels as actual K values
     ax.set_xticks(pos)
     ax.set_xticklabels(xs)
-    ax.set_xlabel('K (segments)')
-    ax.set_ylabel('Time per cycle (ms)')
-    ax.set_title(f'{short} — Measured distribution vs theory (ms)')
+    ax.set_xlabel('K (segments)', fontsize=label_fs, fontweight='bold')
+    ax.set_ylabel('Time per cycle (ms)', fontsize=label_fs, fontweight='bold')
+    # Fix y-axis ticks: 10 units per major tick
+    ax.yaxis.set_major_locator(MultipleLocator(10))
+    ax.tick_params(axis='both', labelsize=tick_fs)
     ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6)
     # Top-left legend: explain box semantics
     whisk_h = Line2D([0], [0], color='black', linewidth=1.2, label='Full range')
@@ -380,15 +426,21 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
                     markerfacecolor='#1f77b4', markeredgecolor='#1f77b4', label='Mean')
     med_h = Line2D([0], [0], color='#ff7f0e', linewidth=1.4, label='Median')
     legend_box = ax.legend(handles=[whisk_h, box_h, mean_h, med_h],
-                           loc='upper left', fontsize=8, framealpha=0.9)
+                           loc='upper left', fontsize=big_fs, framealpha=0.9)
 
     # Bottom-right legend: theory lines
-    legend_lines = ax.legend(loc='lower right', fontsize=8, framealpha=0.85)
+    legend_lines = ax.legend(loc='lower right', fontsize=big_fs, framealpha=0.85)
     ax.add_artist(legend_box)
-    fig.tight_layout()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f'{short}_box_vs_K.png'
-    fig.savefig(out_path)
+    # Save with tight bounding box to avoid title clipping on the right
+    fig.savefig(out_path, bbox_inches='tight', pad_inches=0.1)
+    # Also save a vector PDF alongside PNG (lossless)
+    out_pdf = out_dir / f'{short}_box_vs_K.pdf'
+    try:
+        fig.savefig(out_pdf, bbox_inches='tight', pad_inches=0.1)
+    except Exception:
+        pass
     plt.close(fig)
     return out_path
 
@@ -424,7 +476,7 @@ def main():
         f_expected = meta_m.get('f_expected_gt_99') if isinstance(meta_m, dict) else None
         p = plot_model_boxplot(model, Ks, measured, lb, ub, exp, out_dir, whis=whis,
                                mode=args.filter_mode, mad_k=args.mad_k, iqr_k=args.iqr_k,
-                               f_expected=f_expected)
+                               f_expected=f_expected, show_expected=args.show_expected)
         if p:
             out_paths.append(p)
         mrow, krows = compute_metrics_for_model(model, Ks, measured, lb, ub, exp,
@@ -446,7 +498,8 @@ def main():
         cols = [
             'model','n_total','coverage_LB_UB','coverage_LB_Exp',
             'violation_above_UB_rate','violation_above_Exp_rate','violation_below_LB_rate',
-            'sev_above_UB_ratio_avg','sev_above_Exp_ratio_avg',
+            'sev_above_UB_ratio_avg','sev_above_Exp_ratio_avg','sev_below_LB_ratio_avg',
+            'sev_overall_LB_UB_ratio_avg','sev_overall_LB_Exp_ratio_avg',
             'f_expected_gt_99','expected_coverage_rate','cycles_used','cycles_total','cycles_outliers_dropped'
         ]
         with (out_dir / 'metrics_per_model.csv').open('w', newline='') as f:
@@ -456,7 +509,8 @@ def main():
         cols_k = [
             'model','K','n_total','coverage_LB_UB','coverage_LB_Exp',
             'violation_above_UB_rate','violation_above_Exp_rate','violation_below_LB_rate',
-            'sev_above_UB_ratio_avg','sev_above_Exp_ratio_avg'
+            'sev_above_UB_ratio_avg','sev_above_Exp_ratio_avg','sev_below_LB_ratio_avg',
+            'sev_overall_LB_UB_ratio_avg','sev_overall_LB_Exp_ratio_avg'
         ]
         with (out_dir / 'metrics_per_model_K.csv').open('w', newline='') as f:
             wr = csv.DictWriter(f, fieldnames=cols_k)
@@ -464,9 +518,16 @@ def main():
 
     # Print brief summary
     if out_paths:
-        print('Saved plots:')
+        print('Saved plots (PNG):')
         for p in out_paths:
             print(p)
+        # Also print corresponding PDF paths
+        print('Saved plots (PDF):')
+        for p in out_paths:
+            try:
+                print(Path(p).with_suffix('.pdf'))
+            except Exception:
+                pass
     if metrics_rows:
         print('Saved metrics:', out_dir / 'metrics_per_model.csv')
     if per_k_rows:
