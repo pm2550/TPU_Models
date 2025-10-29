@@ -358,9 +358,10 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
         base_fs = float(matplotlib.rcParams.get('font.size', 10))
     except Exception:
         base_fs = 10.0
-    big_fs = base_fs + 8.0  # 再放大两号（总+8pt）
-    label_fs = big_fs + 2.0  # 仅坐标轴标签再放大两号
-    tick_fs = big_fs + 2.0   # 刻度文字再放大两号
+    big_fs = base_fs + 10.0  # 全局再放大两号（总+10pt）
+    label_fs = big_fs + 4.0  # 仅坐标轴标签再放大四号
+    tick_fs = big_fs + 4.0   # 刻度文字再放大四号
+    legend_fs = big_fs 
     bp = ax.boxplot(
         data,
         positions=list(range(len(xs))),
@@ -408,7 +409,8 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
         except Exception:
             pass
         ax.plot(pos, y_exp, '-o', color='gold', linewidth=1.8, markersize=3, label=label_exp)
-    ax.plot(pos, y_ub, '-o', color='red', linewidth=1.8, markersize=6, label='UB')
+    # Draw UB with higher zorder so it can appear above legend background
+    ax.plot(pos, y_ub, '-o', color='red', linewidth=1.8, markersize=6, label='UB', zorder=6)
 
     # X-axis labels as actual K values
     ax.set_xticks(pos)
@@ -426,10 +428,35 @@ def plot_model_boxplot(model: str, Ks: list[int], measured, lb, ub, exp, out_dir
                     markerfacecolor='#1f77b4', markeredgecolor='#1f77b4', label='Mean')
     med_h = Line2D([0], [0], color='#ff7f0e', linewidth=1.4, label='Median')
     legend_box = ax.legend(handles=[whisk_h, box_h, mean_h, med_h],
-                           loc='upper left', fontsize=big_fs, framealpha=0.9)
+                           loc='upper left', fontsize=legend_fs, framealpha=0.9)
 
     # Bottom-right legend: theory lines
-    legend_lines = ax.legend(loc='lower right', fontsize=big_fs, framealpha=0.85)
+    legend_lines = ax.legend(loc='lower right', fontsize=legend_fs, framealpha=0.85)
+    # Lower the zorder of legend background patches so UB line can draw over them,
+    # while keeping legend texts/handles above.
+    for lg in (legend_box, legend_lines):
+        try:
+            fr = lg.get_frame()
+            if fr is not None:
+                fr.set_zorder(3)
+            for txt in lg.get_texts():
+                try:
+                    txt.set_zorder(7)
+                except Exception:
+                    pass
+            # Handles may not always be directly accessible across Matplotlib versions
+            handles = []
+            if hasattr(lg, 'legendHandles'):
+                handles = lg.legendHandles
+            elif hasattr(lg, 'legend_handles'):  # fallback
+                handles = lg.legend_handles
+            for h in handles or []:
+                try:
+                    h.set_zorder(7)
+                except Exception:
+                    pass
+        except Exception:
+            pass
     ax.add_artist(legend_box)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f'{short}_box_vs_K.png'

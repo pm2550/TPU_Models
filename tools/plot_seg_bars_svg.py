@@ -392,11 +392,24 @@ def main():
     char_px = 7.8 * (label_font / 12.0)
     widths1 = [sw_w + label_gap + len(name) * char_px for _c, name, _p in row1]
     widths2 = [sw_w + label_gap + len(name) * char_px for _c, name, _p in row2]
-    legend_w1 = sum(widths1) + (len(row1)-1)*gap_between
-    legend_w2 = sum(widths2) + (len(row2)-1)*gap_between
-    # Center each row separately
-    lx1 = (total_w - legend_w1)/2.0
-    lx2 = (total_w - legend_w2)/2.0
+    legend_w1 = sum(widths1) + max(0, len(row1)-1) * gap_between
+    legend_w2 = sum(widths2) + max(0, len(row2)-1) * gap_between
+    # Use a shared target width so both legend rows align their left/right edges
+    legend_w_target = max(legend_w1, legend_w2)
+
+    def compute_gap(widths, base_gap):
+        if len(widths) <= 1:
+            return 0.0
+        total = sum(widths) + (len(widths) - 1) * base_gap
+        extra = legend_w_target - total
+        if abs(extra) < 1e-6:
+            return base_gap
+        return max(base_gap + (extra / (len(widths) - 1)), 0.0)
+
+    gap_between1 = compute_gap(widths1, gap_between)
+    gap_between2 = compute_gap(widths2, gap_between)
+    lx1 = (total_w - legend_w_target) / 2.0
+    lx2 = lx1
     # Draw row1 at legend_y, row2 below with a small gap
     rect_y1 = legend_y - sw_h + legend_top_pad
     if rect_y1 < 0:
@@ -414,7 +427,7 @@ def main():
         if pid:
             out.append(svg_rect(xc, rect_y1, sw_w, sw_h, f'url(#{pid})', stroke="none", sw=0, rx=2, ry=2, opacity=1.0))
         out.append(svg_text(xc + sw_w + label_gap, y_row1, name, anchor='start', size=label_font, family=mono_family))
-        xc += w + gap_between
+        xc += w + gap_between1
     # Render row2
     xc = lx2
     for (c, name, pid), w in zip(row2, widths2):
@@ -422,7 +435,7 @@ def main():
         if pid:
             out.append(svg_rect(xc, rect_y2, sw_w, sw_h, f'url(#{pid})', stroke="none", sw=0, rx=2, ry=2, opacity=1.0))
         out.append(svg_text(xc + sw_w + label_gap, y_row2, name, anchor='start', size=label_font, family=mono_family))
-        xc += w + gap_between
+        xc += w + gap_between2
 
     out.append('</svg>')
 

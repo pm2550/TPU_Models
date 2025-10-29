@@ -5,7 +5,7 @@ per-model CSV that includes LB, UB (slow D2H), and a scaled-UB using a factor f
 chosen to cover >=99% of measured invoke means in single-mode summaries.
 
 Details:
-- Th_ms fixed at 0.5 ms; host slope kappa=0.
+- Th_ms fixed at 1.0 ms; host slope kappa=0.
 - LB uses fast D2H (B_OUT), UB uses slow D2H (B_OUT2). H2D speed fixed per model.
 - t_rem (offchip) per group:
   * LB: max(off_ms - Ce_ms, 0)
@@ -79,9 +79,9 @@ try:
 except Exception:
     KAPPA_MS_PER_MS = 0.2992134815732149
 try:
-    HOST_C_MS = float(os.environ.get('HOST_C_MS', '0.5527747236073199'))
+    HOST_C_MS = float(os.environ.get('HOST_C_MS', '1.0527747236073199'))
 except Exception:
-    HOST_C_MS = 0.5527747236073199
+    HOST_C_MS = 1.0527747236073199
 USE_PER_MODEL_THOST = _fbool(os.environ.get('USE_PER_MODEL_THOST'), False)
 
 _IN_SPAN_CACHE = None  # loaded lazily if needed (for measured_in)
@@ -118,14 +118,14 @@ def _load_T_host_map(kappa: float):
 
 def call_compute(B_IN: float, B_OUT: float, B_OUT2: float) -> None:
     """Invoke compute_theory with env overrides.
-    - Fixed host Th=0.5ms and kappa=0.
+    - Fixed host Th=1.0ms and kappa=0.
     - Allow EXTRA_CIN_BYTES passthrough if set (previous behavior).
     """
     os.environ['USE_CODE_DEFAULTS'] = '0'
     os.environ['B_IN'] = str(B_IN)
     os.environ['B_OUT'] = str(B_OUT)
     os.environ['B_OUT2'] = str(B_OUT2)
-    os.environ['HOST_C_MS'] = '0.5'
+    os.environ['HOST_C_MS'] = '1.0'
     os.environ['KAPPA_MS_PER_MS'] = '0.0'
     # import and run
     import importlib.util as _ilu
@@ -361,8 +361,8 @@ def build_per_model_csv(model: str, b_in: float, b_out_hi: float, b_out_lo: floa
         ce = float(r.get('Ce_ms') or 0.0)
         seg_total_mib, off_mib = load_weight_split_mib(model, K, g)
         off_ms = mib_to_ms(off_mib, b_in)
-        # LB / UB hosted totals (Th fixed 0.5)
-        # Th per-group: either fixed 0.5ms or formula-based
+        # LB / UB hosted totals (Th fixed 1.0)
+        # Th per-group: either fixed 1.0ms or formula-based
         if USE_HOST_DELTA_FORMULA:
             # Select intercept per model
             Th_intercept = HOST_C_MS
@@ -390,7 +390,7 @@ def build_per_model_csv(model: str, b_in: float, b_out_hi: float, b_out_lo: floa
                 Uin_used_ms = cout_ms_hi
             th = Th_intercept + KAPPA_MS_PER_MS * Uin_used_ms
         else:
-            th = 0.5
+            th = 1.0
         warm_mib = max(seg_total_mib - off_mib, 0.0)
         t_warm = mib_to_ms(warm_mib, b_in)
         t_over = max(off_ms - ce, 0.0)
