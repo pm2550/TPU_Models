@@ -763,6 +763,7 @@ def main():
     parser.add_argument('--outdir', type=str, default=None, help='Output base directory override')
     parser.add_argument('--model-name', type=str, default=None, help='Logical model name for custom tests')
     parser.add_argument('--segs', type=str, default=None, help='Segments selection, e.g. "0-3" or "1,3"')
+    parser.add_argument('--tflite', type=str, default=None, help='Single .tflite file; will be treated as seg1 in a temp dir')
     args, unknown = parser.parse_known_args()
 
     print("==========================================")
@@ -780,45 +781,56 @@ def main():
     bus = get_usb_bus()
     print(f"使用 USB 总线: {bus}")
     
-    # 自定义 segment 目录模式
-    custom_mode = bool(args.model_dir)
+    # 自定义 segment 目录模式 / 单 tflite 模式
+    custom_mode = bool(args.model_dir or args.tflite)
     if custom_mode:
-        model_dir = os.path.abspath(args.model_dir)
-        if not os.path.isdir(model_dir):
-            print(f"错误：--model-dir 不存在: {model_dir}")
-            sys.exit(1)
-        model_name = args.model_name or os.path.basename(model_dir.rstrip('/'))
-        # 解析 segs
-        seg_list = []
-        if args.segs:
-            toks = [t.strip() for t in args.segs.split(',') if t.strip()]
-            for t in toks:
-                if '-' in t:
-                    a,b = t.split('-',1)
-                    try:
-                        a = int(a); b = int(b)
-                        if a <= b:
-                            seg_list.extend(list(range(a, b+1)))
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        v = int(t)
-                        seg_list.append(v)
-                    except Exception:
-                        pass
-        if not seg_list:
-            # 默认根据目录内 seg*.tflite 推断
-            for p in sorted(glob.glob(os.path.join(model_dir, 'seg*.tflite'))):
-                base = os.path.basename(p)
-                m = None
-                try:
-                    import re as _re
+        import tempfile, shutil, re as _re
+        if args.tflite:
+            tfl_path = os.path.abspath(args.tflite)
+            if not os.path.isfile(tfl_path):
+                print(f"错误：--tflite 文件不存在: {tfl_path}")
+                sys.exit(1)
+            tmpdir = tempfile.mkdtemp(prefix="usbmon_single_")
+            seg1_path = os.path.join(tmpdir, "seg1.tflite")
+            try:
+                os.symlink(tfl_path, seg1_path)
+            except Exception:
+                shutil.copy2(tfl_path, seg1_path)
+            model_dir = tmpdir
+            model_name = args.model_name or Path(tfl_path).stem
+            seg_list = [1]
+        else:
+            model_dir = os.path.abspath(args.model_dir)
+            if not os.path.isdir(model_dir):
+                print(f"错误：--model-dir 不存在: {model_dir}")
+                sys.exit(1)
+            model_name = args.model_name or os.path.basename(model_dir.rstrip('/'))
+            # 解析 segs
+            seg_list = []
+            if args.segs:
+                toks = [t.strip() for t in args.segs.split(',') if t.strip()]
+                for t in toks:
+                    if '-' in t:
+                        a,b = t.split('-',1)
+                        try:
+                            a = int(a); b = int(b)
+                            if a <= b:
+                                seg_list.extend(list(range(a, b+1)))
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            v = int(t)
+                            seg_list.append(v)
+                        except Exception:
+                            pass
+            if not seg_list:
+                # 默认根据目录内 seg*.tflite 推断
+                for p in sorted(glob.glob(os.path.join(model_dir, 'seg*.tflite'))):
+                    base = os.path.basename(p)
                     m = _re.search(r"seg(\d+)\\.tflite$", base)
-                except Exception:
-                    m = None
-                if m:
-                    seg_list.append(int(m.group(1)))
+                    if m:
+                        seg_list.append(int(m.group(1)))
         seg_list = sorted(set(seg_list))
         print(f"自定义模式: {model_name} @ {model_dir}，测试分段: {seg_list}")
         # 运行自定义分段
