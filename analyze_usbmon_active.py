@@ -871,6 +871,49 @@ def main():
         
     # 计算活跃时间（支持通过环境变量 ACTIVE_EXPAND_MS 设置扩展毫秒，默认严格=0ms）
         invoke_windows = invokes_data.get('spans', [])
+        
+        # 按 USB_DEVICE 过滤 invoke_windows；不同测试映射不同，需由外部传入 usb:0/usb:1
+        usb_device_filter = os.environ.get('USB_DEVICE')  # 例："usb:0" 或 "usb:1"
+        if usb_device_filter:
+            invoke_windows = [w for w in invoke_windows if w.get('device') == usb_device_filter]
+            print(f"[INFO] Filtered invoke_windows by USB_DEVICE={usb_device_filter}: {len(invoke_windows)} spans", file=sys.stderr)
+            # 针对该设备重新计算时间基准（该设备的首个大包 Submit）并平移窗口
+            try:
+                first_big_submit = None
+                with open(usbmon_file, 'r', errors='ignore') as f:
+                    for line in f:
+                        # 形如 "S Bo:2:003:... bytes"，筛选到具体设备
+                        if usb_device_filter == 'usb:0':
+                            dev_num = '003'
+                        elif usb_device_filter == 'usb:1':
+                            dev_num = '004'
+                        else:
+                            dev_num = None
+                        if dev_num is None:
+                            break
+                        if f"Bo:2:{dev_num}:" in line:
+                            parts = line.strip().split()
+                            if len(parts) >= 6 and parts[1] == 'S':
+                                try:
+                                    bytes_count = int(parts[5])
+                                    if bytes_count > 10000:  # 只取较大的数据提交
+                                        first_big_submit = float(parts[0]) / 1_000_000.0
+                                        break
+                                except Exception:
+                                    pass
+                if first_big_submit is not None:
+                    # 原 time_map 基准
+                    base_usb_ref = time_map.get('usbmon_ref')
+                    delta = first_big_submit - base_usb_ref
+                    # 平移窗口以对齐该设备的首个大包
+                    for w in invoke_windows:
+                        if 'begin' in w:
+                            w['begin'] += delta
+                        if 'end' in w:
+                            w['end'] += delta
+                    print(f"[INFO] Shifted invoke windows for {usb_device_filter} by {delta*1000:.2f} ms", file=sys.stderr)
+            except Exception as e:
+                print(f"[WARN] Failed to rebase time_map for {usb_device_filter}: {e}", file=sys.stderr)
         # 检测single口径：若span包含 set_begin/get_end 字段，则视为single-like，
         # 在后续采用“last Co(Bo) -> next Bi(S/C)”的纯invoke定义
         try:
@@ -1317,6 +1360,21 @@ def main():
             enriched.append(rec)
         active_spans = enriched
         active_spans = enriched
+        
+        # === 验证检查：检测 time_map 对齐问题 ===
+        total_bytes_out = sum(r.get('bytes_out', 0) or 0 for r in active_spans)
+        non_zero_invokes = sum(1 for r in active_spans if (r.get('bytes_out', 0) or 0) > 0)
+        if non_zero_invokes > 0:
+            avg_bytes_out = total_bytes_out / non_zero_invokes
+            avg_invoke_ms = sum(r.get('invoke_span_s', 0) * 1000 for r in active_spans) / len(active_spans)
+            # 启发式检查：如果 invoke > 8ms 但平均 OUT < 1.5MB，可能有对齐问题
+            # （典型 MN7/DeepLab 模型 8-50ms 应有 1.5-3MB OUT）
+            expected_min_mb = avg_invoke_ms * 0.15  # 约 150KB/ms 的下限
+            actual_mb = avg_bytes_out / (1024 * 1024)
+            if avg_invoke_ms > 8 and actual_mb < expected_min_mb:
+                print(f"[WARNING] 平均 bytes_out={actual_mb:.2f}MB 可能偏低（invoke={avg_invoke_ms:.1f}ms，"
+                      f"预期至少 {expected_min_mb:.2f}MB）", file=sys.stderr)
+                print(f"[WARNING] 可能是 time_map 对齐问题！多设备测试请为每个设备单独对齐", file=sys.stderr)
         
         # 输出结果（附带窗口定义元信息）
         result = {
